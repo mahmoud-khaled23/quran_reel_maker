@@ -30,6 +30,9 @@ Fedora `mpv-libs` 0.40.0 was installed with system administrator authentication.
 The executable and four bundled libraries resolve their dependencies with the
 bundle's library directory on the search path. Physical audio output still
 requires a listening check.
+The installed host libmpv also loaded the generated H.264/AAC evidence MP4 and
+played it to EOF without errors using null audio/video outputs. This exercises
+host decoding without making a claim about physical speakers or display output.
 
 Git ignore rules were checked against representative build/cache, SDK paths,
 private media, signing keys and local editor files. Required Quran/font assets
