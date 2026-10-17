@@ -1,0 +1,30 @@
+FROM ubuntu:24.04@sha256:ac3a3d13e90c660a1cb3e89ec695533399f7378dc1ae5fbdc28eb5781d561594
+ARG FLUTTER_VERSION=3.47.7
+ARG FLUTTER_REVISION=abaf9c523780a608bd46686fd5e53740a07077f8
+ARG DEV_UID=1000
+ARG DEV_GID=1000
+ENV DEBIAN_FRONTEND=noninteractive
+# Ubuntu 24.04 repositories constrain system packages; SDK and Dart are pinned
+# together. Security updates within this distribution are deliberately allowed.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates git curl unzip xz-utils zip python3 \
+    clang cmake ninja-build build-essential pkg-config libgtk-3-dev \
+    liblzma-dev libstdc++-13-dev libmpv-dev mpv ffmpeg \
+    xvfb xauth libgl1-mesa-dri mesa-utils fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+# Ubuntu's default account owns UID 1000; replace it with the development user.
+RUN userdel -r ubuntu && groupadd -g ${DEV_GID} developer \
+    && useradd -m -u ${DEV_UID} -g ${DEV_GID} -s /bin/bash developer \
+    && mkdir -p /opt/flutter /workspace /output /home/developer/.pub-cache \
+    && chown -R developer:developer /opt/flutter /workspace /output /home/developer
+USER developer
+ENV PATH="/opt/flutter/bin:/home/developer/.pub-cache/bin:${PATH}" \
+    PUB_CACHE=/home/developer/.pub-cache \
+    CI=true
+RUN git clone --depth 1 --branch ${FLUTTER_VERSION} https://github.com/flutter/flutter.git /opt/flutter \
+    && test "$(git -C /opt/flutter rev-parse HEAD)" = "${FLUTTER_REVISION}" \
+    && flutter config --no-analytics --enable-linux-desktop \
+    && flutter precache --linux \
+    && flutter --version
+WORKDIR /workspace
+CMD ["bash"]

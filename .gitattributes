@@ -1,0 +1,11 @@
+* text=auto
+*.sh text eol=lf
+*.dart text eol=lf
+
+# Verified upstream assets must stay byte-for-byte identical on every checkout.
+# Preserve original line endings and notices, including their whitespace.
+assets/quran/quran-uthmani.txt -text -whitespace
+assets/quran/quran-data.xml -text -whitespace
+assets/fonts/OFL.txt -text -whitespace
+assets/fonts/NotoSans-OFL.txt -text -whitespace
+assets/fonts/*.ttf binary

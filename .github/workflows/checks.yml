@@ -1,0 +1,29 @@
+name: Flutter and media checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare mounted output and match the host user
+        run: |
+          mkdir -p output
+          echo "DEV_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "DEV_GID=$(id -g)" >> "$GITHUB_ENV"
+      - name: Build development image
+        run: docker compose build dev
+      - name: Analyze and test including FFmpeg
+        run: docker compose run --rm checks
+      - name: Native editor workflow in a private display
+        run: ./scripts/docker-integration-test.sh
+      - name: Build Linux release
+        run: docker compose run --rm build-linux
+      - name: Preserve executable permissions in the artifact
+        run: tar -czf output/quran-reel-linux.tar.gz -C output linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: quran-reel-linux
+          path: output/quran-reel-linux.tar.gz

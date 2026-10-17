@@ -1,0 +1,50 @@
+x-workspace: &workspace
+  image: quran-reel-dev:3.47.7
+  build:
+    context: .
+    dockerfile: Dockerfile.dev
+    args:
+      DEV_UID: ${DEV_UID:-1000}
+      DEV_GID: ${DEV_GID:-1000}
+  init: true
+  working_dir: /workspace
+  volumes:
+    - .:/workspace:z
+    - pub-cache:/home/developer/.pub-cache
+    - flutter-cache:/opt/flutter/bin/cache
+    - dart-tool:/workspace/.dart_tool
+    - container-build:/workspace/build
+    - linux-ephemeral:/workspace/linux/flutter/ephemeral
+    - ./output:/output:z
+  environment:
+    PUB_CACHE: /home/developer/.pub-cache
+    LIBGL_ALWAYS_SOFTWARE: "1"
+  depends_on:
+    cache-init:
+      condition: service_completed_successfully
+services:
+  # Initialize only named volume roots; the workspace never runs as root.
+  cache-init:
+    image: quran-reel-dev:3.47.7
+    user: "0:0"
+    volumes:
+      - dart-tool:/cache/dart
+      - container-build:/cache/build
+      - linux-ephemeral:/cache/linux
+    command: ["sh", "-c", "chown ${DEV_UID:-1000}:${DEV_GID:-1000} /cache/dart /cache/build /cache/linux"]
+  dev:
+    <<: *workspace
+    stdin_open: true
+    tty: true
+  checks:
+    <<: *workspace
+    command: ["bash", "scripts/check.sh"]
+  build-linux:
+    <<: *workspace
+    command: ["bash", "scripts/build-linux.sh"]
+volumes:
+  pub-cache:
+  flutter-cache:
+  dart-tool:
+  container-build:
+  linux-ephemeral:
