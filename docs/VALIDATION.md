@@ -143,4 +143,6 @@ Flutter/Gradle/plugin versions are pinned; upgrades require renewed validation.
 - Container desktop binaries depend on host GTK/GL/mpv runtime libraries.
 - APKs use development signing. No store publishing, production signing,
   binary license clearance, or corresponding-source distribution was performed.
-- CI configuration was added locally; no remote GitHub Actions run was triggered.
+- The follow-up push triggered GitHub Actions. Local checks above passed; consult
+  the [Actions page](https://github.com/mahmoud-khaled23/quran_reel_maker/actions)
+  for the current remote run status.
