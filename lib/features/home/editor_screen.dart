@@ -16,6 +16,7 @@ import '../audio_editor/time_field.dart';
 import '../export/export_service.dart';
 import '../preview/ayah_painter.dart';
 import '../synchronization/alignment_engine.dart';
+import '../synchronization/ayah_timeline.dart';
 
 class EditorScreen extends ConsumerStatefulWidget {
   const EditorScreen({super.key});
@@ -33,6 +34,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   String? waveform;
   int surah = 1, firstAyah = 1, lastAyah = 7;
   CancellationToken? exportToken;
+  AlignmentCancellation? alignmentToken;
+  String? workerPath;
+  bool aligning = false;
   File? lastExport;
   AppServices get services => ref.read(servicesProvider);
   ReelProject? get project => ref.read(editorProvider);
@@ -40,6 +44,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(loadWorkerPath());
     if (services.playbackError == null) {
       audioPlayer = Player();
       backgroundPlayer = Player();
@@ -83,6 +88,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   @override
   void dispose() {
     exportToken?.cancel();
+    alignmentToken?.cancel();
     for (final subscription in subscriptions) {
       unawaited(subscription.cancel());
     }
@@ -126,6 +132,93 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       message(error.toString());
     } finally {
       if (mounted) setState(() => busy = false);
+    }
+  }
+
+  File get workerConfig => File(
+    p.join(services.store.root.parent.path, 'alignment-worker-path.txt'),
+  );
+  Future<void> loadWorkerPath() async {
+    try {
+      if (await workerConfig.exists()) {
+        final path = (await workerConfig.readAsString()).trim();
+        if (mounted && path.isNotEmpty) setState(() => workerPath = path);
+      }
+    } catch (_) {
+      /* A missing preference must not prevent manual editing. */
+    }
+  }
+
+  Future<void> chooseWorker() async {
+    if (!Platform.isLinux) {
+      message(
+        'The Python worker currently runs on Linux. Android retains manual timing with playback and editable boundaries.',
+      );
+      return;
+    }
+    final picked = await FilePicker.platform.pickFiles(
+      dialogTitle:
+          'Select scripts/alignment-worker.sh after running setup-alignment.sh',
+    );
+    final path = picked?.files.single.path;
+    if (path == null) return;
+    await workerConfig.parent.create(recursive: true);
+    await workerConfig.writeAsString(path);
+    if (mounted) setState(() => workerPath = path);
+    message(
+      'Local worker selected. Choose the matching ayahs and complete audio segment, then Align automatically.',
+    );
+  }
+
+  Future<void> alignAutomatically() async {
+    final original = project!;
+    await pause();
+    alignmentToken = AlignmentCancellation();
+    setState(() {
+      aligning = true;
+      progress = 0;
+      status = 'Starting local alignment…';
+    });
+    try {
+      final cues = await services.alignment.align(
+        AlignmentRequest(
+          audioPath: mediaPath(original.audio!),
+          trimStart: original.trimStart,
+          trimEnd: original.trimEnd,
+          surah: surah,
+          firstAyah: firstAyah,
+          lastAyah: lastAyah,
+          workerExecutable: workerPath,
+        ),
+        cancellation: alignmentToken,
+        onProgress: (value, text) {
+          if (mounted) {
+            setState(() {
+              progress = value;
+              status = text;
+            });
+          }
+        },
+      );
+      if (!mounted || alignmentToken!.cancelled) return;
+      for (final cue in cues) {
+        final words = services.quran
+            .verse(cue.surah, cue.ayah)
+            .split(RegExp(r'\s+'));
+        if (cue.words.any((word) => word.index >= words.length)) {
+          throw const FormatException(
+            'Worker returned an invalid Quran word reference. Existing timings were kept.',
+          );
+        }
+      }
+      if (edit(original.copyWith(cues: cues, reviewed: false))) {
+        message(
+          'Automatic draft ready. Listen to each ayah and inspect the word boundaries. Review is required before export.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => aligning = false);
+      alignmentToken = null;
     }
   }
 
@@ -542,6 +635,16 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               color: const Color(0xFF182222),
               child: Column(
                 children: [
+                  if (aligning) ...[
+                    LinearProgressIndicator(value: progress),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () => alignmentToken?.cancel(),
+                        child: const Text('Cancel alignment'),
+                      ),
+                    ),
+                  ],
                   if (exporting) ...[
                     LinearProgressIndicator(value: progress),
                     Row(
@@ -876,21 +979,48 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               label: const Text('Create manual timings'),
             ),
             TextButton.icon(
-              onPressed: () => message(const AlignmentUnavailable().toString()),
+              onPressed: value.audio == null
+                  ? null
+                  : () => action(alignAutomatically),
               icon: const Icon(Icons.model_training),
-              label: const Text('Auto-sync unavailable'),
+              label: Text(
+                value.cues.any((c) => c.alignmentModel != null)
+                    ? 'Rerun alignment'
+                    : 'Align automatically',
+              ),
+            ),
+            TextButton(
+              onPressed: () => action(chooseWorker),
+              child: const Text('Choose local worker'),
             ),
           ],
+        ),
+        const Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: SelectableText(
+            'Linux setup: ./scripts/setup-alignment.sh, then select scripts/alignment-worker.sh. '
+            'After setup, alignment works offline. Select complete ayahs; omit introductions. Android supports manual timing.',
+            style: TextStyle(fontSize: 11, color: Color(0xFF9DB0A9)),
+          ),
         ),
         if (value.cues.isNotEmpty) ...[
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 12),
             child: Text(
-              'Initial times are evenly spaced, not recognized speech. Listen and adjust each ayah. '
+              'Manual grids are evenly spaced; automatic timings are drafts requiring review. Listen and adjust each ayah. '
               'All timestamps use the original audio. Mark uses the playhead. Gaps are allowed; overlaps are not.',
               style: TextStyle(fontSize: 12, color: Color(0xFFE4CB8F)),
             ),
           ),
+          AyahTimeline(
+            project: value,
+            position: position,
+            onSeek: (t) => action(() async {
+              await pause();
+              await seek(t);
+            }),
+          ),
+          const SizedBox(height: 12),
           ...value.cues.asMap().entries.map((entry) {
             final cue = entry.value;
             bool update(double start, double end) {
@@ -930,6 +1060,28 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     ],
                   ),
                   Text(
+                    cue.timingSource == 'automatic'
+                        ? 'Automatic draft · acoustic score ${cue.alignmentScore?.toStringAsFixed(2) ?? "unknown"} (not confidence)'
+                        : cue.timingSource == 'edited'
+                        ? 'Manually edited · word draft cleared'
+                        : 'Manual timing',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFFE4CB8F),
+                    ),
+                  ),
+                  for (final warning in cue.warnings)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        warning,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFFE4CB8F),
+                        ),
+                      ),
+                    ),
+                  Text(
                     quran.verse(cue.surah, cue.ayah),
                     textDirection: TextDirection.rtl,
                     textAlign: TextAlign.center,
@@ -939,6 +1091,41 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                       height: 1.9,
                     ),
                   ),
+                  if (cue.words.isNotEmpty)
+                    Material(
+                      type: MaterialType.transparency,
+                      child: ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        title: const Text(
+                          'Word boundaries · tap to seek',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        children: [
+                          Wrap(
+                            spacing: 6,
+                            children: cue.words
+                                .map(
+                                  (word) => ActionChip(
+                                    label: Text(
+                                      '${word.start.toStringAsFixed(2)}–${word.end.toStringAsFixed(2)} s · ${quran.verse(cue.surah, cue.ayah).split(RegExp(r'\s+'))[word.index]}',
+                                      textDirection: TextDirection.ltr,
+                                    ),
+                                    onPressed: () => action(() async {
+                                      await pause();
+                                      await seek(
+                                        word.start.clamp(
+                                          value.trimStart,
+                                          value.trimEnd,
+                                        ),
+                                      );
+                                    }),
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 12),
                   Row(
                     children: [

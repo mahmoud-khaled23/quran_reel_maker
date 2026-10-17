@@ -3,6 +3,64 @@
 Validation date: 2026-10-17. The starting workspace was the Flutter counter
 starter. No existing application functionality was overwritten.
 
+## Automatic alignment follow-up (2026-10-17)
+
+The following checks apply to the new Linux local Python/ONNX alignment pipeline;
+the older build records below describe the preceding manual-only release.
+
+- Verified the public Quran CTC export, pinned its revision and all file hashes,
+  matched the 241,230,289-byte weight file to its published LFS SHA-256, and loaded
+  the actual q4 graph with ONNX Runtime 1.23.2 CPU. Native Python 3.13 and container
+  Python 3.12 successfully inferred on the licensed CC0 recording.
+- `QRM_TEST_MODEL=1 .alignment-venv/bin/python -m unittest discover -s
+  alignment_worker/tests -v`: **11 passed**, including real inference, expected
+  ayah windows, analytic source-offset/pause transformations, and rejection of
+  silence, noise, repeated passages and a wrong ayah range; slowed audio across
+  an inference chunk boundary also passed its expected timing checks.
+- Docker worker image built with `--require-hashes` Python dependencies. The same
+  **11 tests passed with networking disabled**, using the read-only/non-root
+  `alignment` service. No inference downloads were possible in that run.
+- `flutter analyze`: **no issues**. `flutter test`: **27 passed**, including
+  subprocess protocol errors, missing-model diagnostics, cancellation/timeouts,
+  malformed-output termination, alignment persistence, manual-edit invalidation,
+  source-to-export rebasing, populated desktop/mobile word-review layouts and
+  existing media/project/UI regressions.
+- `python3 -m compileall -q alignment_worker` and `git diff --check` passed.
+  Model downloads, environments and generated evidence are ignored; only the
+  attributed 809,597-byte CC0 fixture is explicitly included in Git.
+- `./scripts/setup-alignment.sh` successfully reused the installed pinned
+  dependencies and verified all model files. The selected launcher is executable.
+- `docker compose --profile alignment run --rm alignment-checks`: **passed**.
+  The native Flutter app used the actual Python worker and CC0 audio, aligned
+  a nonzero trim, sought ayahs/expanded word review, saved, edited an ayah boundary,
+  cleared stale word timings/reset review, and exported a 13-second MP4.
+  This test caught/fixed a missing Material ancestor in the word expansion panel.
+  Its initial dialog-idle wait was also corrected; modal project selection
+  intentionally keeps the editor busy.
+- Populated 1366×900 and 390×844 screenshots exposed reversed word timestamp
+  ranges caused by RTL layout. Time ranges now use LTR layout alongside the
+  preserved Arabic word. Screenshots are under `output/evidence/` (ignored).
+- The original native manual workflow test also passed after these changes.
+  `flutter build linux --release --no-pub` succeeded; the new complete bundle
+  is in `output/linux-alignment/` so the preceding running bundle is untouched.
+- Android's first follow-up build reproduced the development-plugin registration
+  failure even with Pub enabled. The build script now explicitly runs
+  `flutter build apk --release --config-only` before the `--no-pub` release build,
+  following Flutter issue 169336. The generated release registrant was checked
+  and no longer referenced `integration_test`.
+- With that configuration fix, **all three Android release APKs passed**
+  (ARMv7, ARM64, x86-64; 47.2-second Gradle build). They are in `output/android/`
+  with refreshed SHA-256 checksums. The script now refreshes those checksums on
+  every build. No Android device was available; automatic alignment remains Linux-only.
+- The rebuilt `output/linux-alignment/quran_reel_maker` was launched on the host;
+  native players and EGL rendering initialized and the process stayed running.
+  GTK accessibility/cursor and optional CUDA-probe warnings were nonfatal.
+  Physical speaker output was not independently checked.
+
+The real fixture's expected windows are model-assisted regression data, **not
+independent human accuracy labels**. There is no multi-reciter error benchmark
+or calibrated confidence. See [alignment provenance and limitations](ALIGNMENT.md).
+
 ## Pre-push review
 
 Follow-up review on 2026-10-17 fixed:
@@ -136,8 +194,9 @@ Flutter/Gradle/plugin versions are pinned; upgrades require renewed validation.
 - No physical Android device or emulator test was possible in this environment.
   Real Android SAF save dialogs, audible playback, 16 KB page-size devices,
   memory/thermal behavior and long exports need device testing.
-- No suitable alignment weights/runtime/evaluation corpus was installed.
-  Automatic ayah recognition is not implemented and no accuracy is claimed.
+- Linux forced alignment is implemented with an optional local worker. Android
+  retains manual timing. Accuracy remains uncalibrated and requires human review;
+  one licensed regression fixture does not establish general recitation accuracy.
 - The private display test initializes native media players, but does not verify
   audio through physical speakers or real desktop file choosers.
 - Container desktop binaries depend on host GTK/GL/mpv runtime libraries.

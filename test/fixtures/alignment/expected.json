@@ -1,0 +1,9 @@
+{
+  "purpose": "Model-assisted regression windows, not independently human-labelled accuracy ground truth. See README.md.",
+  "trimStart": 14,
+  "trimEnd": 27,
+  "cues": [
+    {"surah": 1, "ayah": 2, "start": [14.4, 15.7], "end": [21.0, 22.0]},
+    {"surah": 1, "ayah": 3, "start": [21.6, 22.5], "end": [25.4, 26.8]}
+  ]
+}

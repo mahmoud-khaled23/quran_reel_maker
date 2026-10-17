@@ -10,6 +10,7 @@ output
 coverage
 **/ephemeral
 **/.gradle
+**/.kotlin
 **/local.properties
 **/key.properties
 **/*.jks
@@ -34,3 +35,10 @@ coverage
 **/*.pem
 *.qreel
 android/build
+
+# Local alignment environment and model downloads
+.alignment-venv/
+.alignment-models/
+__pycache__/
+.pytest_cache/
+!test/fixtures/alignment/fatiha-cc0.ogg

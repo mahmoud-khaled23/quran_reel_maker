@@ -1,0 +1,17 @@
+FROM ubuntu:24.04@sha256:ac3a3d13e90c660a1cb3e89ec695533399f7378dc1ae5fbdc28eb5781d561594 AS worker
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv ffmpeg ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /opt/quran-reel
+COPY alignment_worker/requirements.lock /tmp/requirements.lock
+RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir --require-hashes -r /tmp/requirements.lock
+ENV PATH="/opt/venv/bin:$PATH" PYTHONDONTWRITEBYTECODE=1
+COPY alignment_worker alignment_worker
+COPY assets/quran/quran-uthmani.txt assets/quran/quran-uthmani.txt
+COPY test/fixtures/alignment test/fixtures/alignment
+USER 1000:1000
+CMD ["python", "-m", "alignment_worker.worker", "--model-dir", "/models"]
+
+# Optional native Flutter + real model integration environment, same Ubuntu/Python ABI.
+FROM quran-reel-dev:3.47.7 AS development
+COPY --from=worker /opt/venv /opt/alignment-venv
+ENV QRM_ALIGNMENT_PYTHON=/opt/alignment-venv/bin/python

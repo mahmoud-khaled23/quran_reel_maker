@@ -1,5 +1,16 @@
 # Third-party assets and media libraries
 
+The optional model `mostafanewir70/quran-recitation-ctc-onnx`, pinned revision
+`f90650aac5d9dcff15230a19998c0027f45b33f1`, and its declared upstream
+`rabah2026/wav2vec2-large-xlsr-53-arabic-quran-v_final` declare Apache-2.0 in their
+cards. Weights are explicitly downloaded, not bundled; preserve upstream notices
+when redistributing them. See [model provenance](docs/ALIGNMENT.md).
+ONNX Runtime uses MIT; NumPy uses BSD-3-Clause. Dependency distributions retain
+their licenses; `alignment_worker/requirements.lock` pins versions and hashes.
+
+`test/fixtures/alignment/fatiha-cc0.ogg` is own work by Ibrahimmusa4, released under
+CC0 1.0 on Commons. See [source, license and checksum](test/fixtures/alignment/README.md).
+
 - Quran text: Tanzil Project, Uthmani 1.1, CC BY 3.0 plus the publisher's
   verbatim-copy terms. See assets/quran/README.md and the preserved copyright
   block in quran-uthmani.txt. Source: https://tanzil.net/.

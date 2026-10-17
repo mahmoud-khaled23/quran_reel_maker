@@ -4,10 +4,13 @@ An offline Flutter editor for Fedora Linux and Android. Import a recitation,
 trim it, add an image or looping video, select verified Quran text, review each
 ayah's timing, and export a 1080 × 1920, 30 fps H.264/AAC MP4.
 
-The essential manual workflow is implemented. **Automatic ayah recognition is
-unavailable**: no validated model/weights are bundled. Equal-spacing is clearly
-labeled as a manual starting grid, never recognition. See [alignment limitations](docs/ALIGNMENT.md)
-and [executed checks](docs/VALIDATION.md) for the exact validation status.
+**Linux automatic ayah/word alignment** uses an optional local Python/ONNX worker
+and verified Quran text. Run `./scripts/setup-alignment.sh`, then choose
+`scripts/alignment-worker.sh` in the editor. Setup explicitly downloads pinned,
+SHA-256-verified weights; subsequent inference works offline without Docker.
+Automatic timings require listening review. Android retains manual timing. See
+[setup, model provenance and limitations](docs/ALIGNMENT.md) and
+[executed checks](docs/VALIDATION.md).
 
 ## Start with Docker
 
@@ -110,10 +113,11 @@ flutter test integration_test/media_export_test.dart -d DEVICE_ID
 flutter test integration_test/editor_flow_test.dart -d DEVICE_ID
 ```
 
-The APK script deliberately runs `flutter build apk --release --split-per-abi`
-without `--no-pub`. On the pinned Flutter version, the build's tooling phase must
-regenerate the Android plugin registrant to exclude dev-only plugins. Skipping
-that phase after `flutter pub get` can fail on `integration_test`; see
+The APK script explicitly runs `flutter build apk --release --config-only`
+after dependency resolution, then builds with `--no-pub`. On the pinned Flutter
+version, release configuration must regenerate the Android plugin registrant to
+exclude development-only plugins; simply retaining the build's Pub phase proved
+insufficient after integration tests. See
 [Flutter issue 169336](https://github.com/flutter/flutter/issues/169336).
 
 Android minimum API is **24**. FFmpeg is supplied by pinned
@@ -146,7 +150,11 @@ or assumed. No connected Android device was present during initial inspection.
 3. Import an image (PNG, JPEG, WebP) or video (MP4, MOV, MKV, WebM). Select **Fill &
    crop** with horizontal/vertical focus, or **Fit** with black letterboxing.
    Video starts at its beginning, loops as needed, and its soundtrack is muted.
-4. Choose a surah and ayah range. **Create manual timings** replaces the cue list
+4. Choose a surah and ayah range matching complete ayahs in the trim. On Linux,
+   **Align automatically** generates ayah/word drafts using the installed worker.
+   Inspect warnings and the segment timeline; expand word boundaries to seek.
+   **Rerun alignment** uses the current selection; failure/cancellation preserves
+   existing cues. **Create manual timings** replaces the cue list
    with an evenly spaced draft inside the selected trim. Listen and edit each
    start/end, or use **Mark start/end** at the playhead. Adjacent boundaries may
    require shortening one cue before extending its neighbor. Gaps are supported;
@@ -190,8 +198,9 @@ copyright metadata; local exports also have a notice sidecar.
 
 ## Architecture and checks
 
-`lib/features/` contains the editor, preview painter, Quran repository, manual
-alignment boundary and export service. `ReelProject` is the versioned domain
+`lib/features/` contains the editor, preview painter, Quran repository, local
+alignment adapter and export service. `alignment_worker/` implements offline
+CTC alignment with an NDJSON process interface. `ReelProject` is the versioned domain
 model. Riverpod owns the editing state and injectable service dependencies.
 `ProjectStore` owns local media copies and atomic JSON saves. `MediaEngine` is the
 platform boundary: argument-list subprocesses on Linux, FFmpegKit on Android.
@@ -210,7 +219,8 @@ Tests cover Quran/font integrity, all ayah references, project persistence,
 invalid trims/cues, safe filenames, rebase/gaps, responsive layouts, real FFmpeg
 H.264/AAC export, dimensions/rate/duration, exact audio trim by tone frequency,
 text visibility/blank gaps, looping backgrounds, fast-start, and cancellation.
-Fixtures are generated tones/color fields; no copyrighted recitation is bundled.
+Fixtures include generated tones/color fields and an attributed CC0 Al-Fatiha
+recording for opt-in real-model tests. See [fixture provenance](test/fixtures/alignment/README.md).
 CI builds the Docker image, runs checks and produces a Linux release bundle.
 
 See [docs/VALIDATION.md](docs/VALIDATION.md) for commands actually executed and

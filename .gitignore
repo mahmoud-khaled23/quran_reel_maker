@@ -76,3 +76,11 @@ app.*.map.json
 **/*.pfx
 **/*.pem
 /android/build/
+/android/.kotlin/
+
+# Local alignment environment and model downloads
+.alignment-venv/
+.alignment-models/
+__pycache__/
+.pytest_cache/
+!test/fixtures/alignment/fatiha-cc0.ogg

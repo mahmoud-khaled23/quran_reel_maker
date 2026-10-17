@@ -2,6 +2,31 @@ import 'dart:convert';
 
 enum BackgroundFit { cover, contain }
 
+class WordCue {
+  const WordCue({
+    required this.index,
+    required this.start,
+    required this.end,
+    required this.score,
+  });
+
+  /// Whitespace word index in the unmodified Tanzil ayah (annotation-only tokens may be skipped).
+  final int index;
+  final double start, end, score;
+  Map<String, Object> toJson() => {
+    'index': index,
+    'start': start,
+    'end': end,
+    'score': score,
+  };
+  factory WordCue.fromJson(Map<String, dynamic> j) => WordCue(
+    index: j['index'] as int,
+    start: (j['start'] as num).toDouble(),
+    end: (j['end'] as num).toDouble(),
+    score: (j['score'] as num).toDouble(),
+  );
+}
+
 class AyahCue {
   const AyahCue({
     required this.surah,
@@ -9,6 +34,11 @@ class AyahCue {
     required this.start,
     required this.end,
     this.confidence,
+    this.timingSource = 'manual',
+    this.alignmentScore,
+    this.alignmentModel,
+    this.warnings = const [],
+    this.words = const [],
   });
   final int surah;
   final int ayah;
@@ -17,12 +47,25 @@ class AyahCue {
   final double start;
   final double end;
   final double? confidence;
+  final String timingSource;
+
+  /// Uncalibrated acoustic match score, never an accuracy probability.
+  final double? alignmentScore;
+  final String? alignmentModel;
+  final List<String> warnings;
+  final List<WordCue> words;
   AyahCue copyWith({double? start, double? end}) => AyahCue(
     surah: surah,
     ayah: ayah,
     start: start ?? this.start,
     end: end ?? this.end,
-    confidence: confidence,
+    // Editing ayah boundaries invalidates the automatic word-level draft.
+    confidence: start == null && end == null ? confidence : null,
+    timingSource: start == null && end == null ? timingSource : 'edited',
+    alignmentScore: start == null && end == null ? alignmentScore : null,
+    alignmentModel: alignmentModel,
+    warnings: start == null && end == null ? warnings : const [],
+    words: start == null && end == null ? words : const [],
   );
   Map<String, Object?> toJson() => {
     'surah': surah,
@@ -30,6 +73,11 @@ class AyahCue {
     'start': start,
     'end': end,
     'confidence': confidence,
+    'timingSource': timingSource,
+    'alignmentScore': alignmentScore,
+    'alignmentModel': alignmentModel,
+    'warnings': warnings,
+    'words': words.map((w) => w.toJson()).toList(),
   };
   factory AyahCue.fromJson(Map<String, dynamic> j) => AyahCue(
     surah: j['surah'] as int,
@@ -37,6 +85,17 @@ class AyahCue {
     start: (j['start'] as num).toDouble(),
     end: (j['end'] as num).toDouble(),
     confidence: (j['confidence'] as num?)?.toDouble(),
+    timingSource: j['timingSource'] as String? ?? 'manual',
+    alignmentScore: (j['alignmentScore'] as num?)?.toDouble(),
+    alignmentModel: j['alignmentModel'] as String?,
+    warnings: List<String>.unmodifiable(
+      (j['warnings'] as List? ?? []).cast<String>(),
+    ),
+    words: List.unmodifiable(
+      (j['words'] as List? ?? []).map(
+        (w) => WordCue.fromJson(w as Map<String, dynamic>),
+      ),
+    ),
   );
 }
 
@@ -167,6 +226,31 @@ class ReelProject {
         break;
       }
       previousEnd = cue.end;
+      if (!['manual', 'automatic', 'edited'].contains(cue.timingSource) ||
+          (cue.alignmentScore != null &&
+              (!cue.alignmentScore!.isFinite ||
+                  cue.alignmentScore! < 0 ||
+                  cue.alignmentScore! > 1))) {
+        errors.add('Invalid alignment quality metadata.');
+      }
+      var wordEnd = cue.start;
+      var wordIndex = -1;
+      for (final word in cue.words) {
+        if (word.index <= wordIndex ||
+            !word.start.isFinite ||
+            !word.end.isFinite ||
+            word.start < wordEnd - 0.000001 ||
+            word.end <= word.start ||
+            word.end > cue.end + 0.000001 ||
+            !word.score.isFinite ||
+            word.score < 0 ||
+            word.score > 1) {
+          errors.add('Word timings must be ordered and inside their ayah.');
+          break;
+        }
+        wordEnd = word.end;
+        wordIndex = word.index;
+      }
     }
     if (forExport) {
       if (audio == null) errors.add('Import audio first.');

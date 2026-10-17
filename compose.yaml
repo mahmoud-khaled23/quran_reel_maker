@@ -23,6 +23,34 @@ x-workspace: &workspace
     cache-init:
       condition: service_completed_successfully
 services:
+  alignment:
+    profiles: [alignment]
+    build:
+      context: .
+      dockerfile: Dockerfile.alignment
+      target: worker
+    image: quran-reel-alignment:1
+    user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
+    network_mode: none
+    stdin_open: true
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - ./.alignment-models/quran-ctc-q4-v1:/models:ro,z
+      - ./output:/media:ro,z
+  alignment-checks:
+    <<: *workspace
+    profiles: [alignment]
+    image: quran-reel-alignment-dev:1
+    build:
+      context: .
+      dockerfile: Dockerfile.alignment
+      target: development
+    environment:
+      PUB_CACHE: /home/developer/.pub-cache
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      QRM_ALIGNMENT_PYTHON: /opt/alignment-venv/bin/python
+    command: ["bash", "scripts/check-alignment-ui.sh"]
   # Initialize only named volume roots; the workspace never runs as root.
   cache-init:
     image: quran-reel-dev:3.47.7

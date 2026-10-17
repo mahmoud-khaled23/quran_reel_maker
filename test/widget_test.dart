@@ -18,10 +18,43 @@ class FixtureEditor extends EditorController {
   ReelProject build() => const ReelProject(id: 'widget-test');
 }
 
+class AlignedFixtureEditor extends EditorController {
+  @override
+  ReelProject build() => const ReelProject(
+    id: 'aligned-widget',
+    audio: 'media/audio.ogg',
+    audioDuration: 70,
+    trimStart: 60,
+    trimEnd: 64,
+    cues: [
+      AyahCue(
+        surah: 1,
+        ayah: 2,
+        start: 61,
+        end: 63,
+        timingSource: 'automatic',
+        alignmentModel: 'quran-ctc-q4-v1',
+        alignmentScore: 0.7,
+        warnings: [
+          'Automatic draft: listen to every boundary before export. Acoustic scores are not accuracy probabilities.',
+        ],
+        words: [WordCue(index: 0, start: 61, end: 63, score: 0.7)],
+      ),
+    ],
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  for (final size in [const Size(1366, 900), const Size(390, 844)]) {
-    testWidgets('editor starts without overflow at $size', (tester) async {
+  for (final (size, aligned) in [
+    (const Size(1366, 900), false),
+    (const Size(390, 844), false),
+    (const Size(1366, 900), true),
+    (const Size(390, 844), true),
+  ]) {
+    testWidgets('editor starts without overflow at $size, aligned=$aligned', (
+      tester,
+    ) async {
       late Directory root;
       late QuranRepository quran;
       await tester.runAsync(() async {
@@ -53,7 +86,9 @@ void main() {
                   playbackError: 'Playback disabled for widget tests.',
                 ),
               ),
-              editorProvider.overrideWith(FixtureEditor.new),
+              editorProvider.overrideWith(
+                aligned ? AlignedFixtureEditor.new : FixtureEditor.new,
+              ),
             ],
             child: const QuranReelApp(),
           ),
@@ -61,7 +96,17 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Quran Reel Maker'), findsOneWidget);
-      expect(find.text('Import audio'), findsOneWidget);
+      expect(
+        find.text(aligned ? 'Replace audio' : 'Import audio'),
+        findsOneWidget,
+      );
+      if (aligned) {
+        final words = find.text('Word boundaries · tap to seek');
+        await tester.ensureVisible(words);
+        await tester.tap(words);
+        await tester.pumpAndSettle();
+        expect(find.byType(ActionChip), findsOneWidget);
+      }
       expect(tester.takeException(), isNull);
       const evidence = String.fromEnvironment('MEDIA_EVIDENCE');
       if (evidence.isNotEmpty) {
@@ -72,8 +117,9 @@ void main() {
                   .toImage();
           final png = await image.toByteData(format: ui.ImageByteFormat.png);
           await Directory(evidence).create(recursive: true);
-          await File('$evidence/editor-${size.width.toInt()}.png')
-              .writeAsBytes(png!.buffer.asUint8List());
+          await File(
+            '$evidence/editor-${size.width.toInt()}${aligned ? "-aligned" : ""}.png',
+          ).writeAsBytes(png!.buffer.asUint8List());
           image.dispose();
         });
       }
