@@ -1,3 +1,5 @@
+import 'package:quran_reel_maker/features/audio_editor/time_format.dart';
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -143,16 +145,20 @@ void main() {
         expect((await store.load(aligned.id)).reviewed, isTrue);
         final end = find.widgetWithText(TextField, 'End').first;
         await tester.ensureVisible(end);
-        await tester.enterText(
-          end,
-          (aligned.cues.first.end - 0.05).toStringAsFixed(3),
-        );
+        await tester.enterText(end, timeLabel(aligned.cues.first.end - 0.05));
         await tester.testTextInput.receiveAction(TextInputAction.done);
         await idle();
         expect(container.read(editorProvider)!.reviewed, isFalse);
         expect(container.read(editorProvider)!.cues.first.words, isEmpty);
         await tap('I reviewed the ayahs and their timing');
-        await tap('Export MP4');
+        await tester.ensureVisible(find.text('Export MP4'));
+        await tester.tap(find.text('Export MP4'));
+        for (var i = 0; i < 50 && !tester.any(find.text('Render MP4')); i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.tap(find.text('Render MP4'));
+        await idle();
         final output =
             (await services.exports
                     .list()

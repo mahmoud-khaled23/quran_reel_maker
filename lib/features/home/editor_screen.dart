@@ -13,6 +13,10 @@ import '../../media_engine/media_engine.dart';
 import '../../models/reel_project.dart';
 import '../../services/export_destination.dart';
 import '../audio_editor/time_field.dart';
+import '../media_editor/trim_dialog.dart';
+import '../export/export_settings.dart';
+import '../preview/overlay_state.dart';
+import '../synchronization/word_timing_dialog.dart';
 import '../export/export_service.dart';
 import '../preview/ayah_painter.dart';
 import '../synchronization/alignment_engine.dart';
@@ -32,7 +36,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   bool playing = false, busy = false, exporting = false;
   String status = 'Create a reel, one ayah at a time.';
   String? waveform;
-  int surah = 1, firstAyah = 1, lastAyah = 7;
+  int surah = 1, firstAyah = 1, lastAyah = 7, firstWord = 0;
+  int? lastWord;
+  bool syncingVideo = false;
   CancellationToken? exportToken;
   AlignmentCancellation? alignmentToken;
   String? workerPath;
@@ -50,11 +56,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       backgroundPlayer = Player();
       videoController = VideoController(backgroundPlayer!);
       unawaited(backgroundPlayer!.setVolume(0));
-      unawaited(backgroundPlayer!.setPlaylistMode(PlaylistMode.single));
+
       subscriptions.add(
         audioPlayer!.stream.position.listen((value) {
           if (!mounted || project == null) return;
           final time = value.inMilliseconds / 1000;
+          if (playing) unawaited(syncVideo(time));
           if (time >= project!.trimEnd && playing) unawaited(pause());
           setState(
             () => position = time.clamp(project!.trimStart, project!.trimEnd),
@@ -189,6 +196,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           firstAyah: firstAyah,
           lastAyah: lastAyah,
           workerExecutable: workerPath,
+          firstWord: firstWord,
+          lastWord: lastWord,
         ),
         cancellation: alignmentToken,
         onProgress: (value, text) {
@@ -243,14 +252,79 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     await audioPlayer?.seek(
       Duration(microseconds: (seconds * 1000000).round()),
     );
-    if (project!.videoBackground) {
-      final duration = backgroundPlayer?.state.duration.inMilliseconds ?? 0;
-      final relative = ((seconds - project!.trimStart) * 1000).round();
-      await backgroundPlayer?.seek(
-        Duration(milliseconds: duration > 0 ? relative % duration : 0),
-      );
-    }
+    await syncVideo(seconds, force: true);
     if (mounted) setState(() => position = seconds);
+  }
+
+  Future<void> syncVideo(double time, {bool force = false}) async {
+    if (syncingVideo ||
+        backgroundPlayer == null ||
+        project?.videoBackground != true) {
+      return;
+    }
+    final target = project!.videoTime(
+      time,
+      fallbackDuration: backgroundPlayer!.state.duration.inMilliseconds / 1000,
+    );
+    final actual = backgroundPlayer!.state.position.inMilliseconds / 1000;
+    if (!force && (target - actual).abs() < 0.18) return;
+    syncingVideo = true;
+    try {
+      await backgroundPlayer!.seek(
+        Duration(milliseconds: (target * 1000).round()),
+      );
+      if (playing) await backgroundPlayer!.play();
+    } finally {
+      syncingVideo = false;
+    }
+  }
+
+  Future<RangeValues?> previewTrim(
+    String path,
+    double duration,
+    bool video, {
+    double start = 0,
+    double? end,
+  }) async {
+    await pause();
+    if (!mounted) return null;
+    return showDialog<RangeValues>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => MediaTrimDialog(
+        path: path,
+        duration: duration,
+        video: video,
+        start: start,
+        end: end,
+        playbackError: services.playbackError,
+      ),
+    );
+  }
+
+  Future<void> reviewTrim(bool video) async {
+    final current = project!;
+    final range = await previewTrim(
+      mediaPath(video ? current.background! : current.audio!),
+      video ? current.videoDuration : current.audioDuration,
+      video,
+      start: video ? current.videoTrimStart : current.trimStart,
+      end: video ? current.videoTrimEnd : current.trimEnd,
+    );
+    if (range == null) return;
+    edit(
+      video
+          ? current.copyWith(
+              videoTrimStart: range.start,
+              videoTrimEnd: range.end,
+            )
+          : current.copyWith(
+              trimStart: range.start,
+              trimEnd: range.end,
+              reviewed: false,
+            ),
+    );
+    await loadPlayers();
   }
 
   Future<void> togglePlayback() async {
@@ -271,7 +345,21 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   Future<void> loadPlayers() async {
     await pause();
-    final current = project!;
+    var current = project!;
+    if (current.videoBackground &&
+        current.background != null &&
+        current.videoDuration == 0) {
+      final info = await services.engine.inspect(
+        mediaPath(current.background!),
+      );
+      current = current.copyWith(
+        videoDuration: info.duration,
+        videoTrimEnd: info.duration,
+        backgroundWidth: info.width,
+        backgroundHeight: info.height,
+      );
+      if (!edit(current)) return;
+    }
     if (current.videoBackground && current.background != null) {
       await backgroundPlayer?.open(
         Media(mediaPath(current.background!)),
@@ -289,6 +377,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       await audioPlayer?.stop();
       waveform = null;
       position = 0;
+      await syncVideo(current.trimStart, force: true);
     }
     if (mounted) setState(() {});
   }
@@ -304,7 +393,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     if (!info.hasAudio || !info.duration.isFinite || info.duration < 1 / 30) {
       throw MediaFailure('This file has no readable audio duration.');
     }
-    await pause();
+    final range = await previewTrim(path, info.duration, false);
+    if (range == null) return;
     final relative = await services.store.importFile(
       project!.id,
       File(path),
@@ -314,8 +404,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       project!.copyWith(
         audio: relative,
         audioDuration: info.duration,
-        trimStart: 0,
-        trimEnd: info.duration,
+        trimStart: range.start,
+        trimEnd: range.end,
         cues: [],
         reviewed: false,
       ),
@@ -351,8 +441,16 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final path = picked?.files.single.path;
     if (path == null) return;
     final info = await services.engine.inspect(path);
-    if (!info.hasVideo || (video && info.duration <= 0)) {
+    if (!info.hasVideo ||
+        info.width <= 0 ||
+        info.height <= 0 ||
+        (video && (!info.duration.isFinite || info.duration < 1 / 30))) {
       throw MediaFailure('This background cannot be decoded.');
+    }
+    RangeValues? range;
+    if (video) {
+      range = await previewTrim(path, info.duration, true);
+      if (range == null) return;
     }
     await pause();
     final relative = await services.store.importFile(
@@ -360,7 +458,18 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       File(path),
       'background',
     );
-    edit(project!.copyWith(background: relative, videoBackground: video));
+    edit(
+      project!.copyWith(
+        background: relative,
+        videoBackground: video,
+        backgroundWidth: info.width,
+        backgroundHeight: info.height,
+        videoDuration: video ? info.duration : 0,
+        videoTrimStart: range?.start ?? 0,
+        videoTrimEnd: range?.end ?? 0,
+        originalAspect: video,
+      ),
+    );
     await ref.read(editorProvider.notifier).save();
     await loadPlayers();
   }
@@ -383,7 +492,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     leading: const Icon(Icons.video_library_outlined),
                     title: Text(item.title),
                     subtitle: Text(
-                      '${item.cues.length} ayahs · ${item.duration.toStringAsFixed(1)} s',
+                      '${item.cues.length} ayahs · ${timeLabel(item.duration)}',
                     ),
                     onTap: () => Navigator.pop(context, item),
                   ),
@@ -412,6 +521,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             .map((cue) => cue.ayah)
             .reduce((a, b) => a > b ? a : b);
       }
+      firstWord = selected.cues.isEmpty ? 0 : selected.cues.first.firstWord;
+      lastWord = selected.cues.isEmpty
+          ? null
+          : selected.cues
+                .lastWhere((c) => c.surah == surah && c.ayah == lastAyah)
+                .lastWord;
       lastExport = null;
       await loadPlayers();
     }
@@ -419,6 +534,57 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
 
   Future<void> startExport() async {
     await pause();
+    final name = await availableExport(services.exports, project!.title);
+    if (!mounted) return;
+    var selection = project!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: const Text('Export video'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Filename: ${p.basename(name.path)}'),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  initialValue: selection.exportResolution,
+                  decoration: const InputDecoration(labelText: 'Resolution'),
+                  items: exportResolutions
+                      .map(
+                        (r) => DropdownMenuItem(value: r, child: Text('${r}p')),
+                      )
+                      .toList(),
+                  onChanged: (r) => update(
+                    () => selection = selection.copyWith(exportResolution: r),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text('${exportSize(selection)} · 30 fps · H.264 / AAC'),
+                const Text(
+                  'Resolution sets the short edge. Source video limits the output size. Existing filenames receive a numbered suffix.',
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Render MP4'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true) return;
+    if (!edit(selection)) return;
     await ref.read(editorProvider.notifier).save();
     final current = project!;
     setState(() {
@@ -440,7 +606,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
       if (mounted) {
         setState(() {
           lastExport = file;
-          status = 'Your reel is ready. Save a copy to your chosen location.';
+          status =
+              '${p.basename(file.path)} is ready. Save a copy to your chosen location.';
         });
       }
     } on ExportCancelled {
@@ -532,6 +699,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                                 ref
                                     .read(editorProvider.notifier)
                                     .replace(await services.store.create());
+                                firstWord = 0;
+                                lastWord = null;
                                 lastExport = null;
                                 await loadPlayers();
                               }),
@@ -815,17 +984,23 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         ),
         const SizedBox(height: 12),
         Text(
-          '${value.duration.toStringAsFixed(3)} s selected · ${timeLabel(value.audioDuration)} source',
+          '${timeLabel(value.duration)} selected · ${timeLabel(value.audioDuration)} source',
           style: const TextStyle(fontSize: 11),
         ),
       ],
+      if (value.audio != null)
+        TextButton.icon(
+          onPressed: () => action(() => reviewTrim(false)),
+          icon: const Icon(Icons.content_cut),
+          label: const Text('Preview & trim audio'),
+        ),
       if (services.playbackError != null) Text(services.playbackError!),
     ],
   );
   Widget backgroundSection(ReelProject value) => section(
     '02',
     'Set the scene',
-    'A quiet background. A vertical canvas. Your recitation in focus.',
+    'Preview the source, choose its segment, then compose your reel.',
     [
       Wrap(
         spacing: 10,
@@ -876,9 +1051,28 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             onChanged: (y) => edit(value.copyWith(cropY: y)),
           ),
         ],
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Keep original aspect ratio'),
+          value: value.originalAspect,
+          onChanged: (v) => edit(value.copyWith(originalAspect: v)),
+          subtitle: const Text(
+            'Turn off for a portrait 9:16 reel with Fit or Fill & crop.',
+          ),
+        ),
+        if (value.videoBackground && value.videoDuration > 0) ...[
+          Text(
+            '${timeLabel(value.videoTrimStart)} – ${timeLabel(value.videoTrimEnd)} / ${timeLabel(value.videoDuration)}',
+          ),
+          OutlinedButton.icon(
+            onPressed: () => action(() => reviewTrim(true)),
+            icon: const Icon(Icons.content_cut),
+            label: const Text('Preview & trim video'),
+          ),
+        ],
         Text(
           value.videoBackground
-              ? 'Video loops from its beginning. Background sound is muted.'
+              ? 'Only the selected video segment loops. Background sound is muted.'
               : 'Image holds for the selected audio duration.',
           style: const TextStyle(fontSize: 11, color: Color(0xFF9DB0A9)),
         ),
@@ -907,6 +1101,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
               )
               .toList(),
           onChanged: (number) => setState(() {
+            firstWord = 0;
+            lastWord = null;
             surah = number!;
             firstAyah = 1;
             lastAyah = quran.surahs[surah - 1].count.clamp(1, 7);
@@ -926,6 +1122,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                       DropdownMenuItem(value: i + 1, child: Text('${i + 1}')),
                 ),
                 onChanged: (n) => setState(() {
+                  firstWord = 0;
+                  lastWord = null;
                   firstAyah = n!;
                   if (lastAyah < firstAyah) lastAyah = firstAyah;
                 }),
@@ -944,7 +1142,44 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     child: Text('${i + firstAyah}'),
                   ),
                 ),
-                onChanged: (n) => setState(() => lastAyah = n!),
+                onChanged: (n) => setState(() {
+                  lastAyah = n!;
+                  lastWord = null;
+                }),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: wordSelector(
+                'First recited word',
+                quran.verse(surah, firstAyah),
+                firstWord,
+                (v) => setState(() {
+                  firstWord = v;
+                  if (firstAyah == lastAyah &&
+                      lastWord != null &&
+                      lastWord! < v) {
+                    lastWord = v;
+                  }
+                }),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: wordSelector(
+                'Last recited word',
+                quran.verse(surah, lastAyah),
+                lastWord ??
+                    quran.verse(surah, lastAyah).split(RegExp(r'\s+')).length -
+                        1,
+                (v) => setState(() {
+                  lastWord = v;
+                  if (firstAyah == lastAyah && firstWord > v) firstWord = v;
+                }),
               ),
             ),
           ],
@@ -967,6 +1202,8 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                               last: lastAyah,
                               start: value.trimStart,
                               end: value.trimEnd,
+                              firstWord: firstWord,
+                              lastWord: lastWord,
                             ),
                             reviewed: false,
                           ),
@@ -999,7 +1236,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           padding: EdgeInsets.only(top: 8),
           child: SelectableText(
             'Linux setup: ./scripts/setup-alignment.sh, then select scripts/alignment-worker.sh. '
-            'After setup, alignment works offline. Select complete ayahs; omit introductions. Android supports manual timing.',
+            'After setup, alignment works offline. Select the matching ayahs and boundary words; omit introductions and repetitions. Android supports manual timing.',
             style: TextStyle(fontSize: 11, color: Color(0xFF9DB0A9)),
           ),
         ),
@@ -1063,7 +1300,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     cue.timingSource == 'automatic'
                         ? 'Automatic draft · acoustic score ${cue.alignmentScore?.toStringAsFixed(2) ?? "unknown"} (not confidence)'
                         : cue.timingSource == 'edited'
-                        ? 'Manually edited · word draft cleared'
+                        ? 'Manually edited'
                         : 'Manual timing',
                     style: const TextStyle(
                       fontSize: 11,
@@ -1091,6 +1328,42 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                       height: 1.9,
                     ),
                   ),
+                  if (cue.words.isEmpty)
+                    const Text(
+                      'Passage timing: the selected excerpt stays visible for this interval. Add word timings for progressive display.',
+                      style: TextStyle(fontSize: 11, color: Colors.amber),
+                    ),
+                  TextButton.icon(
+                    icon: const Icon(Icons.edit_note),
+                    label: const Text('Edit recited words & timing'),
+                    onPressed: () => action(() async {
+                      await pause();
+                      if (!mounted) return;
+                      final result = await showDialog<AyahCue>(
+                        context: context,
+                        builder: (_) => WordTimingDialog(
+                          cue: cue,
+                          verse: quran.verse(cue.surah, cue.ayah),
+                        ),
+                      );
+                      if (result != null) {
+                        final cues = List<AyahCue>.of(project!.cues)
+                          ..[entry.key] = result;
+                        if (edit(
+                          project!.copyWith(cues: cues, reviewed: false),
+                        )) {
+                          setState(() {
+                            if (cue.surah == surah && cue.ayah == firstAyah) {
+                              firstWord = result.firstWord;
+                            }
+                            if (cue.surah == surah && cue.ayah == lastAyah) {
+                              lastWord = result.lastWord;
+                            }
+                          });
+                        }
+                      }
+                    }),
+                  ),
                   if (cue.words.isNotEmpty)
                     Material(
                       type: MaterialType.transparency,
@@ -1107,7 +1380,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                                 .map(
                                   (word) => ActionChip(
                                     label: Text(
-                                      '${word.start.toStringAsFixed(2)}–${word.end.toStringAsFixed(2)} s · ${quran.verse(cue.surah, cue.ayah).split(RegExp(r'\s+'))[word.index]}',
+                                      '${timeLabel(word.start)}–${timeLabel(word.end)} · ${quran.verse(cue.surah, cue.ayah).split(RegExp(r'\s+'))[word.index]}',
                                       textDirection: TextDirection.ltr,
                                     ),
                                     onPressed: () => action(() async {
@@ -1182,14 +1455,39 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     );
   }
 
+  Widget wordSelector(
+    String label,
+    String verse,
+    int selected,
+    void Function(int) changed,
+  ) {
+    final words = verse.split(RegExp(r'\s+'));
+    return DropdownButtonFormField<int>(
+      key: ValueKey('$label-$verse-$selected'),
+      initialValue: selected,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: label),
+      items: words
+          .asMap()
+          .entries
+          .map(
+            (e) => DropdownMenuItem(
+              value: e.key,
+              child: Text(
+                '${e.key + 1}. ${e.value}',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          )
+          .toList(),
+      onChanged: (v) => changed(v!),
+    );
+  }
+
   Widget preview(ReelProject value, {bool compact = false}) {
-    AyahCue? active;
-    for (final cue in value.cues) {
-      if (position >= cue.start && position < cue.end) {
-        active = cue;
-        break;
-      }
-    }
+    final overlay = overlayAt(value, position);
+    final active = overlay == null ? null : value.cues[overlay.cueIndex];
+    final size = exportSize(value);
     Widget background = Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -1209,7 +1507,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     final fit = value.fit == BackgroundFit.cover
         ? BoxFit.cover
         : BoxFit.contain;
-    final alignment = Alignment(value.cropX * 2 - 1, value.cropY * 2 - 1);
+    final alignment = value.fit == BackgroundFit.cover
+        ? Alignment(value.cropX * 2 - 1, value.cropY * 2 - 1)
+        : Alignment.center;
     if (value.background != null) {
       if (value.videoBackground && videoController != null) {
         background = Video(
@@ -1232,9 +1532,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Row(
+        Row(
           children: [
-            Text(
+            const Text(
               'YOUR REEL',
               style: TextStyle(
                 fontSize: 11,
@@ -1244,17 +1544,17 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
             ),
             Spacer(),
             Text(
-              '9:16 · 1080p · 30 fps',
+              '$size · 30 fps',
               style: TextStyle(fontSize: 11, color: Color(0xFF9DB0A9)),
             ),
           ],
         ),
         const SizedBox(height: 12),
         Center(
-          child: SizedBox(
-            height: compact ? 310 : 520,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: compact ? 310 : 520),
             child: AspectRatio(
-              aspectRatio: 9 / 16,
+              aspectRatio: size.width / size.height,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(18),
                 child: ColoredBox(
@@ -1263,15 +1563,48 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     fit: StackFit.expand,
                     children: [
                       background,
-                      CustomPaint(
-                        painter: AyahPainter(
-                          text: active == null
+                      LayoutBuilder(
+                        builder: (context, bounds) => GestureDetector(
+                          onPanUpdate: locked
                               ? null
-                              : services.quran.verse(active.surah, active.ayah),
-                          reference: active == null
-                              ? null
-                              : '${services.quran.surahs[active.surah - 1].name} · ${active.surah}:${active.ayah}',
-                          attribution: value.cues.isNotEmpty,
+                              : (details) => edit(
+                                  project!.copyWith(
+                                    overlayX:
+                                        (project!.overlayX +
+                                                details.delta.dx /
+                                                    bounds.maxWidth)
+                                            .clamp(0, 1),
+                                    overlayY:
+                                        (project!.overlayY +
+                                                details.delta.dy /
+                                                    bounds.maxHeight)
+                                            .clamp(0, 1),
+                                  ),
+                                ),
+                          child: CustomPaint(
+                            painter: AyahPainter(
+                              text: active == null
+                                  ? null
+                                  : overlay!.text(
+                                      services.quran.verse(
+                                        active.surah,
+                                        active.ayah,
+                                      ),
+                                    ),
+                              reference: active == null
+                                  ? null
+                                  : '${services.quran.surahs[active.surah - 1].name} · ${active.surah}:${active.ayah}',
+                              attribution: value.cues.isNotEmpty,
+                              outputSize: Size(
+                                size.width.toDouble(),
+                                size.height.toDouble(),
+                              ),
+                              x: value.overlayX,
+                              y: value.overlayY,
+                              fontColor: value.fontColor,
+                              textBackground: value.textBackground,
+                            ),
+                          ),
                         ),
                       ),
                       if (value.background == null)
@@ -1329,6 +1662,52 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           style: const TextStyle(fontSize: 12, color: Color(0xFF9DB0A9)),
         ),
         const SizedBox(height: 18),
+        ExpansionTile(
+          title: const Text('Text position & color'),
+          subtitle: const Text('Drag on the preview or use these controls'),
+          children: [
+            const Text('Horizontal position'),
+            Slider(
+              value: value.overlayX,
+              onChanged: locked
+                  ? null
+                  : (x) => edit(value.copyWith(overlayX: x)),
+            ),
+            const Text('Vertical position'),
+            Slider(
+              value: value.overlayY,
+              onChanged: locked
+                  ? null
+                  : (y) => edit(value.copyWith(overlayY: y)),
+            ),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final color in const [
+                  0xFFFFFFFF,
+                  0xFFFFD77A,
+                  0xFFA4E4C5,
+                  0xFF90CAF9,
+                  0xFF000000,
+                ])
+                  ChoiceChip(
+                    label: Icon(Icons.format_color_text, color: Color(color)),
+                    selected: value.fontColor == color,
+                    onSelected: locked
+                        ? null
+                        : (_) => edit(value.copyWith(fontColor: color)),
+                  ),
+              ],
+            ),
+            SwitchListTile(
+              title: const Text('Text background'),
+              value: value.textBackground,
+              onChanged: locked
+                  ? null
+                  : (v) => edit(value.copyWith(textBackground: v)),
+            ),
+          ],
+        ),
         if (lastExport != null)
           FilledButton.tonalIcon(
             onPressed: locked

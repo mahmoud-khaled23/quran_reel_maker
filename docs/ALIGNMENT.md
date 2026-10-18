@@ -69,7 +69,8 @@ first implementation. This is not a comparative accuracy claim.
 
 ## Processing and review
 
-1. Validate Quran digest, local file, references and a 0.5–180 second trim.
+1. Validate Quran digest, local file, references, selected boundary words and a
+   `00:00:00:500`–`00:03:00:000` trim.
    Verify local model hashes before loading. Reject oversized text/DP requests.
 2. FFmpeg decodes exactly the selected trim to mono 16 kHz float32. Network
    protocols are disabled. Reject unreadable, truncated or silent audio.
@@ -90,13 +91,21 @@ first implementation. This is not a comparative accuracy claim.
    long words/pauses and speech at trim edges trigger warnings. These thresholds
    are engineering heuristics, not calibrated accuracy measurements.
 
-Use **Align automatically / Rerun alignment**, the segment strip, playback/seek
-slider, ayah and word seeking, and editable start/end seconds. Cancel keeps prior
-cues. Editing an ayah boundary discards obsolete word timings/scores. Successful
-alignment and manual timing/trim edits reset the review checkbox; export requires
-review. All displayed times are original-source seconds. The existing PNG subtitle
-timeline clips/subtracts the trim start exactly once, quantizes to 30 fps and
-keeps gaps blank. Word drafts support review; export still uses **ayah-level** text.
+Use **Align automatically / Rerun alignment**, the segment strip, playback/seek,
+word seeking, and editable `HH:MM:SS:FFF` fields. First/last word selectors align
+partial boundary ayahs without changing canonical text or original word indices.
+The selection must match the recording; arbitrary partial-passage discovery is
+not implemented. Cancellation keeps prior cues. Editing an ayah boundary clears
+obsolete word drafts; **Edit recited words & timing** edits individual boundaries
+or selects a manual excerpt. Manual word scores are null, never fabricated.
+
+Preview and export share progressive word prefixes, clipped to the audio trim
+and quantized to 30 fps with onsets rounded forward. Words before the trim and
+future words are excluded. Gaps over 750 ms are blank from the prior word's end
+until the next onset; shorter gaps hold the prefix. Every ayah/last-word end clears
+text. The renderer preserves original canonical characters, spacing and adjacent
+pause marks. Manual passage timing explicitly displays the selected excerpt
+throughout its ayah interval. Review is required after timing/trim edits.
 
 ## Local process protocol, version 1
 
@@ -105,6 +114,12 @@ The worker reads one JSON line on stdin (maximum 64 KiB):
 ```json
 {"protocol":1,"quranSha256":"6933e133dd56db778c801bf738848454e43648105a151e8d84d86a7cae39ec5f","audioPath":"/absolute/recitation.ogg","trimStart":14,"trimEnd":27,"surah":1,"firstAyah":2,"lastAyah":3}
 ```
+
+Optional `firstWord` and `lastWord` are zero-based whitespace indices in the first
+and last selected ayahs. Omission selects complete ayahs, preserving protocol 1
+compatibility. Each result cue echoes its selected `firstWord`/`lastWord`; Flutter
+checks requested bounds. The tokenizer filters only the acoustic target and keeps
+original indices, including when an excerpt starts in the middle of an ayah.
 
 Stdout contains NDJSON `progress` events (`protocol:1`, `value:0..1`, `message`),
 then exactly one `result`, or an `error` with a code and actionable message.
@@ -155,7 +170,8 @@ updates. The optional development target builds on the Flutter development image
 
 Without `QRM_TEST_MODEL=1`, real-model Python tests explicitly skip. The bundled
 [CC0 fixture and expected windows](../test/fixtures/alignment/README.md) test actual
-inference, inserted pauses/source offsets, silence, noise and wrong selections.
+inference, partial-ayah original word indices, inserted pauses/source offsets,
+silence, noise and wrong selections.
 Expected windows are **model-assisted regression data**, not human gold labels.
 Synthetic emissions independently test CTC path behavior. Dart tests check process
 failure/cancellation, persisted metadata and export rebasing.
@@ -167,8 +183,8 @@ failure/cancellation, persisted metadata and export rebasing.
   or distort a draft. Crop them out or edit manually. Repeated passages are not
   automatically duplicated into additional cues.
 - Tajweed elongation can outlast a lexical emission; CTC frame times are not
-  guaranteed phonetic boundaries. Word times are approximate. Pauses within an
-  ayah do not automatically blank the ayah subtitle.
+  guaranteed phonetic boundaries. Word times are approximate. The display clears
+  inter-word gaps over 750 ms, but cannot identify pauses inside a word emission.
 - Noise, music, echo, multiple voices, unfamiliar styles, very short selections
   and chunk seams can produce confident-looking errors. Acoustic scores and
   mismatch checks cannot prove recitation/text correctness.

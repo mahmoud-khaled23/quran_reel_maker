@@ -1,32 +1,102 @@
 import '../../models/reel_project.dart';
 
+import '../preview/overlay_state.dart';
+import 'export_settings.dart';
+
 class OverlaySpan {
-  const OverlaySpan(this.startFrame, this.endFrame, this.cueIndex);
+  const OverlaySpan(
+    this.startFrame,
+    this.endFrame,
+    this.cueIndex, [
+    this.state,
+  ]);
   final int startFrame, endFrame;
   final int? cueIndex;
+  final OverlayState? state;
+  String get key => state?.key ?? 'blank';
   double get duration => (endFrame - startFrame) / 30;
 }
 
-/// Clip absolute cue times to the trim, rebase once, then quantize to 30 fps.
 List<OverlaySpan> overlayTimeline(ReelProject project) {
-  final total = (project.duration * 30).round();
-  var cursor = 0;
-  final spans = <OverlaySpan>[];
-  for (var i = 0; i < project.cues.length; i++) {
-    final cue = project.cues[i];
-    final start = ((cue.start - project.trimStart) * 30).round().clamp(
-      0,
-      total,
-    );
-    final end = ((cue.end - project.trimStart) * 30).round().clamp(0, total);
-    if (end <= start) continue;
-    if (start > cursor) spans.add(OverlaySpan(cursor, start, null));
-    spans.add(OverlaySpan(start, end, i));
-    cursor = end;
+  final total = (project.duration * 30).ceil();
+  final points = <int>{0, total};
+  void event(double time) => points.add(
+    ((time - project.trimStart) * 30 - 1e-7).ceil().clamp(0, total),
+  );
+  for (final cue in project.cues) {
+    event(cue.start);
+    event(cue.end);
+    for (final word in cue.words) {
+      event(word.start);
+      event(word.end);
+    }
   }
-  if (cursor < total) spans.add(OverlaySpan(cursor, total, null));
+  final sorted = points.toList()..sort();
+  final spans = <OverlaySpan>[];
+  for (var i = 0; i < sorted.length - 1; i++) {
+    final state = overlayAt(project, project.trimStart + sorted[i] / 30);
+    if (spans.isNotEmpty && spans.last.state?.key == state?.key) {
+      final old = spans.removeLast();
+      spans.add(
+        OverlaySpan(old.startFrame, sorted[i + 1], state?.cueIndex, state),
+      );
+    } else {
+      spans.add(OverlaySpan(sorted[i], sorted[i + 1], state?.cueIndex, state));
+    }
+  }
   return spans;
 }
+
+String backgroundFilter(ReelProject project) {
+  final size = exportSize(project);
+  final w = size.width, h = size.height;
+  // Normalize non-square pixels before aspect fitting; FFmpeg autorotates input.
+  const square = 'scale=iw*sar:ih,setsar=1';
+  return project.fit == BackgroundFit.cover
+      ? '$square,scale=$w:$h:force_original_aspect_ratio=increase,crop=$w:$h:(iw-ow)*${project.cropX}:(ih-oh)*${project.cropY}'
+      : '$square,scale=$w:$h:force_original_aspect_ratio=decrease,pad=$w:$h:(ow-iw)/2:(oh-ih)/2:color=black';
+}
+
+/// Decode exactly the chosen video range, then loop this bounded temporary clip.
+/// Input seeking with transcoding discards frames before the requested boundary.
+List<String> videoTrimArguments(
+  ReelProject project,
+  String input,
+  String output,
+  String encoder,
+) => [
+  '-y',
+  '-hide_banner',
+  '-loglevel',
+  'warning',
+  '-filter_threads',
+  '1',
+  '-ss',
+  project.videoTrimStart.toStringAsFixed(6),
+  '-i',
+  input,
+  '-t',
+  project.videoSegmentDuration.toStringAsFixed(6),
+  '-map',
+  '0:v:0',
+  '-an',
+  '-vf',
+  '${backgroundFilter(project)},setpts=PTS-STARTPTS,fps=30,format=yuv420p',
+  '-c:v',
+  encoder,
+  if (encoder == 'libx264') ...[
+    '-preset',
+    'veryfast',
+    '-crf',
+    '18',
+  ] else ...[
+    '-b:v',
+    '6M',
+  ],
+  '-threads',
+  '2',
+  output,
+];
 
 List<String> exportArguments({
   required ReelProject project,
@@ -37,10 +107,7 @@ List<String> exportArguments({
   required String encoder,
   String copyright = '',
 }) {
-  final cover = project.fit == BackgroundFit.cover;
-  final fit = cover
-      ? 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920:(iw-ow)*${project.cropX}:(ih-oh)*${project.cropY}'
-      : 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black';
+  final fit = backgroundFilter(project);
   final duration = project.duration.toStringAsFixed(6);
   return [
     '-y',

@@ -1,21 +1,38 @@
 import 'dart:ui' as ui;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 /// The exact same painter is used in the preview and exported PNG layers.
 class AyahPainter extends CustomPainter {
-  const AyahPainter({this.text, this.reference, this.attribution = true});
+  const AyahPainter({
+    this.text,
+    this.reference,
+    this.attribution = true,
+    this.outputSize = canvasSize,
+    this.x = 0.5,
+    this.y = 0.58,
+    this.fontColor = 0xFFFFFFFF,
+    this.textBackground = true,
+  });
+  final Size outputSize;
+  final double x, y;
+  final int fontColor;
+  final bool textBackground;
   final String? text;
   final String? reference;
   final bool attribution;
   static const canvasSize = Size(1080, 1920);
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.save();
-    canvas.scale(
-      size.width / canvasSize.width,
-      size.height / canvasSize.height,
+    final aspect = outputSize.aspectRatio;
+    final logical = Size(
+      aspect >= 1 ? 1080 * aspect : 1080,
+      aspect >= 1 ? 1080 : 1080 / aspect,
     );
+    final textWidth = math.min(1500.0, logical.width * 0.84);
+    canvas.save();
+    canvas.scale(size.width / logical.width, size.height / logical.height);
     if (text != null) {
       final painter = TextPainter(
         textDirection: TextDirection.rtl,
@@ -30,28 +47,41 @@ class AyahPainter extends CustomPainter {
             fontFamily: 'AmiriQuran',
             fontSize: fontSize,
             height: 1.9,
-            color: Colors.white,
+            color: Color(fontColor),
+            shadows: const [Shadow(blurRadius: 4, color: Colors.black)],
           ),
         );
-        painter.layout(minWidth: 912, maxWidth: 912);
+        painter.layout(minWidth: math.min(360, textWidth), maxWidth: textWidth);
         fontSize -= 2;
-      } while (painter.height > 760 && fontSize >= 10);
-      final top = 1110 - painter.height / 2;
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(46, top - 35, 988, painter.height + 112),
-          const Radius.circular(28),
-        ),
-        Paint()..color = const Color(0xB8182425),
-      );
-      painter.paint(canvas, Offset(84, top));
+      } while (painter.height > math.min(760, logical.height * 0.60) &&
+          fontSize >= 10);
+      final actualWidth = painter.width;
+      final boxWidth = actualWidth + 76;
+      final boxHeight = painter.height + 112;
+      final left = (logical.width * x - boxWidth / 2)
+          .clamp(24.0, math.max(24.0, logical.width - boxWidth - 24))
+          .toDouble();
+      final boxTop = (logical.height * y - boxHeight / 2)
+          .clamp(24.0, math.max(24.0, logical.height - boxHeight - 106))
+          .toDouble();
+      final top = boxTop + 35;
+      if (textBackground) {
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(left, boxTop, boxWidth, boxHeight),
+            const Radius.circular(28),
+          ),
+          Paint()..color = const Color(0xB8182425),
+        );
+      }
+      painter.paint(canvas, Offset(left + 38, top));
       final textHeight = painter.height;
       painter.dispose();
       _label(
         canvas,
         reference ?? '',
-        Offset(84, top + textHeight + 30),
-        912,
+        Offset(left + 38, top + textHeight + 30),
+        actualWidth,
         28,
         const Color(0xFFE6CD91),
       );
@@ -60,8 +90,8 @@ class AyahPainter extends CustomPainter {
       _label(
         canvas,
         'Quran text: Tanzil.net · CC BY 3.0',
-        const Offset(60, 1810),
-        960,
+        Offset(60, logical.height - 70),
+        logical.width - 120,
         21,
         const Color(0xFFD7DFDC),
       );
@@ -96,9 +126,12 @@ class AyahPainter extends CustomPainter {
 
   Future<ui.Image> rasterize() async {
     final recorder = ui.PictureRecorder();
-    paint(Canvas(recorder), canvasSize);
+    paint(Canvas(recorder), outputSize);
     final picture = recorder.endRecording();
-    final image = await picture.toImage(1080, 1920);
+    final image = await picture.toImage(
+      outputSize.width.round(),
+      outputSize.height.round(),
+    );
     picture.dispose();
     return image;
   }
@@ -107,5 +140,10 @@ class AyahPainter extends CustomPainter {
   bool shouldRepaint(covariant AyahPainter oldDelegate) =>
       text != oldDelegate.text ||
       reference != oldDelegate.reference ||
-      attribution != oldDelegate.attribution;
+      attribution != oldDelegate.attribution ||
+      outputSize != oldDelegate.outputSize ||
+      x != oldDelegate.x ||
+      y != oldDelegate.y ||
+      fontColor != oldDelegate.fontColor ||
+      textBackground != oldDelegate.textBackground;
 }

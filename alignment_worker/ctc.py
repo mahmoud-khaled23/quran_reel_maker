@@ -38,10 +38,14 @@ def fold_logits(logits, vocab, labels):
     return np.log(np.maximum(folded, 1e-30))
 
 
-def tokenize(verses, labels):
+def tokenize(verses, labels, first_word=0, last_word=None):
     target, owners, words = [], [], []
     for ayah_index, verse in enumerate(verses):
         for word_index, original in enumerate(verse.split()):
+            if ayah_index == 0 and word_index < first_word:
+                continue
+            if ayah_index == len(verses) - 1 and last_word is not None and word_index > last_word:
+                continue
             letters = [character(c) for c in original]
             letters = [c for c in letters if c and c != "|"]
             if not letters:  # stand-alone pause/sajdah mark, not a spoken word
@@ -65,7 +69,7 @@ def viterbi(logp, target):
     states = np.zeros(2 * len(target) + 1, dtype=np.int32)
     states[1::2] = target
     if not len(target) or frames < len(target) or frames * len(states) > 40_000_000:
-        raise ValueError("Audio/text is too short or too large to align. Select fewer ayahs and trim to at most 3 minutes.")
+        raise ValueError("Audio/text is too short or too large to align. Select fewer ayahs and trim to at most 00:03:00:000.")
     previous = np.full(len(states), -np.inf)
     previous[0] = logp[0, 0]
     previous[1] = logp[0, target[0]]

@@ -1,5 +1,87 @@
 # Validation record
 
+## Editing, progressive words and branding (2026-10-18)
+
+This follow-up extends the existing Riverpod/MediaKit/FFmpeg editor and local CTC
+worker. No new Flutter or Python runtime dependencies were added. ImageMagick is
+needed only to regenerate committed launcher derivatives.
+
+Implemented and exercised:
+
+- Shared `HH:MM:SS:FFF` parsing/formatting, non-destructive confirmed audio/video
+  trim dialogs, source-duration validation, source aspect/rotation metadata,
+  and saved video trim ranges. Source seconds remain the schema-1 storage format;
+  new fields have defaults for old projects.
+- Original-index partial-ayah targets in the real worker; progressive canonical
+  excerpts shared by preview/export. No future words; long gaps and word/ayah ends
+  clear text. Editable manual word boundaries have no invented acoustic score.
+  Unchanged formatted timestamps retain their original sub-millisecond precision.
+- Project overlay position/color/background settings, all six export qualities,
+  source-video size caps, actual prepared-video trim looping, safe readable
+  filenames with atomic collision reservations, and MP4 stream/duration checks.
+- Supplied artwork integrated into Android density/adaptive resources and the
+  Linux bundle/window. `desktop-file-validate` passed for both the packaged entry
+  and an installed entry in a temporary XDG directory with spaces, quotes,
+  dollar signs, backticks, backslashes and percent signs in the bundle path.
+  The original artwork SHA-256 remains unchanged.
+
+Executed checks:
+
+- `docker compose --profile alignment build alignment alignment-checks`: passed.
+- `docker compose --profile alignment run --rm -e QRM_TEST_MODEL=1 -v
+  "$PWD/.alignment-models/quran-ctc-q4-v1:/opt/quran-reel/.alignment-models/quran-ctc-q4-v1:ro,z"
+  alignment python -m unittest discover -s alignment_worker/tests -v`:
+  **12 passed with networking disabled**, including actual partial-ayah inference
+  retaining original word indices. The first native run had an obsolete diagnostic
+  assertion; updating that assertion was followed by the complete offline pass.
+- `docker compose run --rm dev bash scripts/check-editor-ui.sh`: passed in private
+  Xvfb. Real audio/video import, native play/pause, confirmed trims, source deletion
+  after import, manual timing/review, save/reopen and MP4 export. Only the OS file
+  picker was replaced. Fixture-generation and tooltip-finder mistakes found during
+  development were corrected before the successful run.
+- `docker compose --profile alignment run --rm alignment-checks`: passed the real
+  model → Flutter review/edit/save → 13-second MP4 workflow in private Xvfb.
+- The worker launcher runs from `/tmp` using its absolute script path; it does not
+  depend on the caller's working directory. Python compilation, shell syntax,
+  desktop entry validation and `git diff --check` passed.
+- `adb devices -l`: no connected device/emulator. Android runtime playback,
+  trimming/export and launcher appearance therefore remain unverified on-device.
+
+- Final `flutter analyze --no-pub`: **no issues**. Final `flutter test --no-pub`:
+  **40 passed**, including real FFmpeg exports and a regression for switching
+  Fill to Fit after adjusting crop focus. Fit preview now centers the background
+  consistently with export. These checks followed the last application change.
+- `flutter build apk --debug --no-pub`: passed. `bash scripts/build-apk.sh`:
+  **all three release APKs passed** (ARMv7, ARM64, x86-64). The final debug build
+  took 13.6 seconds and release Gradle build 113.6 seconds. `apksigner verify`
+  and `zipalign -c -P 16 4` passed for all four APKs. Manifest inspection confirmed
+  the app name, API 24 minimum, API 36 target, adaptive icon and expected ABIs.
+  These are package checks, not evidence of Android device execution.
+- `docker compose run --rm dev bash scripts/build-linux.sh output/linux-enhanced`:
+  **final Linux release passed**. The executable and bundled shared libraries
+  have no unresolved host dependencies. The updated app was launched on Fedora
+  and remained running; native players initialized. GTK accessibility/cursor
+  warnings and MediaKit's software-rendering fallback were nonfatal. Physical
+  speaker output was not independently checked.
+- `.gitignore` excludes model weights, Python environments, generated media,
+  APKs and signing properties. Publishable-file inspection found no private-key
+  blocks or common access-token patterns and no file larger than 10 MB.
+
+Artifacts: the complete Linux bundle is `output/linux-enhanced/`; the debug APK,
+three release APKs and release SHA-256 checksums are in `output/android/`.
+Development logs are `output/enhanced-*.log`; generated MP4/PNG evidence is in
+`output/enhanced-evidence/`. All these generated artifacts are ignored by Git.
+
+Limits: partial selections require choosing the matching first/last recited words;
+there is no arbitrary partial-passage discovery. Word boundaries remain approximate
+and uncalibrated, repetitions require correction/cropping, and 30 fps onset rounding
+can delay display by less than one frame. The 750 ms pause threshold is a display
+heuristic, not acoustic silence detection. Manual passage timing shows its selected
+excerpt throughout the ayah interval. Exporting needs temporary storage for the
+trimmed background, overlays and final video. Android alignment remains manual.
+Release signing remains the development configuration; this task does not publish
+a production-signed Android application. Existing historical results follow.
+
 Validation date: 2026-10-17. The starting workspace was the Flutter counter
 starter. No existing application functionality was overwritten.
 

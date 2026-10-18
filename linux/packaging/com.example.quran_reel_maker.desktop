@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Quran Reel Maker
+Comment=Create Quran recitation videos locally
+Exec=quran_reel_maker
+Icon=com.example.quran_reel_maker
+Terminal=false
+Categories=AudioVideo;Video;AudioVideoEditing;
+StartupWMClass=com.example.quran_reel_maker

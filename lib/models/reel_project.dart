@@ -7,13 +7,14 @@ class WordCue {
     required this.index,
     required this.start,
     required this.end,
-    required this.score,
+    this.score,
   });
 
   /// Whitespace word index in the unmodified Tanzil ayah (annotation-only tokens may be skipped).
   final int index;
-  final double start, end, score;
-  Map<String, Object> toJson() => {
+  final double start, end;
+  final double? score;
+  Map<String, Object?> toJson() => {
     'index': index,
     'start': start,
     'end': end,
@@ -23,7 +24,7 @@ class WordCue {
     index: j['index'] as int,
     start: (j['start'] as num).toDouble(),
     end: (j['end'] as num).toDouble(),
-    score: (j['score'] as num).toDouble(),
+    score: (j['score'] as num?)?.toDouble(),
   );
 }
 
@@ -39,6 +40,8 @@ class AyahCue {
     this.alignmentModel,
     this.warnings = const [],
     this.words = const [],
+    this.firstWord = 0,
+    this.lastWord,
   });
   final int surah;
   final int ayah;
@@ -54,18 +57,60 @@ class AyahCue {
   final String? alignmentModel;
   final List<String> warnings;
   final List<WordCue> words;
-  AyahCue copyWith({double? start, double? end}) => AyahCue(
+  final int firstWord;
+  final int? lastWord;
+  AyahCue copyWith({
+    double? start,
+    double? end,
+    int? firstWord,
+    int? lastWord,
+    List<WordCue>? words,
+  }) => AyahCue(
     surah: surah,
     ayah: ayah,
+    firstWord: firstWord ?? this.firstWord,
+    lastWord: lastWord ?? this.lastWord,
     start: start ?? this.start,
     end: end ?? this.end,
     // Editing ayah boundaries invalidates the automatic word-level draft.
-    confidence: start == null && end == null ? confidence : null,
-    timingSource: start == null && end == null ? timingSource : 'edited',
-    alignmentScore: start == null && end == null ? alignmentScore : null,
+    confidence:
+        start == null &&
+            end == null &&
+            firstWord == null &&
+            lastWord == null &&
+            words == null
+        ? confidence
+        : null,
+    timingSource:
+        start == null &&
+            end == null &&
+            firstWord == null &&
+            lastWord == null &&
+            words == null
+        ? timingSource
+        : 'edited',
+    alignmentScore:
+        start == null &&
+            end == null &&
+            firstWord == null &&
+            lastWord == null &&
+            words == null
+        ? alignmentScore
+        : null,
     alignmentModel: alignmentModel,
-    warnings: start == null && end == null ? warnings : const [],
-    words: start == null && end == null ? words : const [],
+    warnings:
+        start == null &&
+            end == null &&
+            firstWord == null &&
+            lastWord == null &&
+            words == null
+        ? warnings
+        : const [],
+    words:
+        words ??
+        (start == null && end == null && firstWord == null && lastWord == null
+            ? this.words
+            : const []),
   );
   Map<String, Object?> toJson() => {
     'surah': surah,
@@ -77,9 +122,13 @@ class AyahCue {
     'alignmentScore': alignmentScore,
     'alignmentModel': alignmentModel,
     'warnings': warnings,
+    'firstWord': firstWord,
+    'lastWord': lastWord,
     'words': words.map((w) => w.toJson()).toList(),
   };
   factory AyahCue.fromJson(Map<String, dynamic> j) => AyahCue(
+    firstWord: j['firstWord'] as int? ?? 0,
+    lastWord: j['lastWord'] as int?,
     surah: j['surah'] as int,
     ayah: j['ayah'] as int,
     start: (j['start'] as num).toDouble(),
@@ -113,6 +162,17 @@ class ReelProject {
     this.cropX = 0.5,
     this.cropY = 0.5,
     this.cues = const [],
+    this.videoDuration = 0,
+    this.videoTrimStart = 0,
+    this.videoTrimEnd = 0,
+    this.backgroundWidth = 0,
+    this.backgroundHeight = 0,
+    this.originalAspect = false,
+    this.exportResolution = 1080,
+    this.overlayX = 0.5,
+    this.overlayY = 0.58,
+    this.fontColor = 0xFFFFFFFF,
+    this.textBackground = true,
     this.reviewed = false,
   });
   final String id;
@@ -129,7 +189,33 @@ class ReelProject {
   final double cropX;
   final double cropY;
   final List<AyahCue> cues;
+  final double videoDuration;
+  final double videoTrimStart;
+  final double videoTrimEnd;
+  final int backgroundWidth;
+  final int backgroundHeight;
+  final bool originalAspect;
+  final int exportResolution;
+  final double overlayX;
+  final double overlayY;
+  final int fontColor;
+  final bool textBackground;
   final bool reviewed;
+  double get canvasAspect =>
+      originalAspect && backgroundWidth > 0 && backgroundHeight > 0
+      ? backgroundWidth / backgroundHeight
+      : 9 / 16;
+  double get videoSegmentDuration => videoTrimEnd - videoTrimStart;
+  double videoTime(double audioTime, {double fallbackDuration = 0}) {
+    final length = videoSegmentDuration > 0
+        ? videoSegmentDuration
+        : fallbackDuration;
+    return length > 0
+        ? videoTrimStart +
+              ((audioTime - trimStart).clamp(0, double.infinity) % length)
+        : 0;
+  }
+
   double get duration => trimEnd - trimStart;
 
   ReelProject copyWith({
@@ -144,6 +230,17 @@ class ReelProject {
     double? cropX,
     double? cropY,
     List<AyahCue>? cues,
+    double? videoDuration,
+    double? videoTrimStart,
+    double? videoTrimEnd,
+    int? backgroundWidth,
+    int? backgroundHeight,
+    bool? originalAspect,
+    int? exportResolution,
+    double? overlayX,
+    double? overlayY,
+    int? fontColor,
+    bool? textBackground,
     bool? reviewed,
   }) => ReelProject(
     id: id,
@@ -158,6 +255,17 @@ class ReelProject {
     cropX: cropX ?? this.cropX,
     cropY: cropY ?? this.cropY,
     cues: List.unmodifiable(cues ?? this.cues),
+    videoDuration: videoDuration ?? this.videoDuration,
+    videoTrimStart: videoTrimStart ?? this.videoTrimStart,
+    videoTrimEnd: videoTrimEnd ?? this.videoTrimEnd,
+    backgroundWidth: backgroundWidth ?? this.backgroundWidth,
+    backgroundHeight: backgroundHeight ?? this.backgroundHeight,
+    originalAspect: originalAspect ?? this.originalAspect,
+    exportResolution: exportResolution ?? this.exportResolution,
+    overlayX: overlayX ?? this.overlayX,
+    overlayY: overlayY ?? this.overlayY,
+    fontColor: fontColor ?? this.fontColor,
+    textBackground: textBackground ?? this.textBackground,
     reviewed: reviewed ?? this.reviewed,
   );
 
@@ -205,6 +313,27 @@ class ReelProject {
         cropY > 1) {
       errors.add('Invalid crop position.');
     }
+    if (![
+          videoDuration,
+          videoTrimStart,
+          videoTrimEnd,
+        ].every((n) => n.isFinite && n >= 0) ||
+        (videoDuration > 0 &&
+            (videoTrimEnd > videoDuration + 0.001 ||
+                videoSegmentDuration < 1 / 30)) ||
+        (videoDuration == 0 && (videoTrimStart != 0 || videoTrimEnd != 0))) {
+      errors.add(
+        'Video trim must lie inside the source and last at least one frame.',
+      );
+    }
+    if (backgroundWidth < 0 ||
+        backgroundHeight < 0 ||
+        ![144, 240, 360, 480, 720, 1080].contains(exportResolution) ||
+        ![overlayX, overlayY].every((n) => n.isFinite && n >= 0 && n <= 1) ||
+        fontColor < 0xFF000000 ||
+        fontColor > 0xFFFFFFFF) {
+      errors.add('Invalid canvas, export resolution or overlay style.');
+    }
     double previousEnd = -1;
     for (final cue in cues) {
       if (cue.surah < 1 ||
@@ -233,18 +362,25 @@ class ReelProject {
                   cue.alignmentScore! > 1))) {
         errors.add('Invalid alignment quality metadata.');
       }
+      if (cue.firstWord < 0 ||
+          (cue.lastWord != null && cue.lastWord! < cue.firstWord)) {
+        errors.add('Invalid Quran word selection.');
+      }
       var wordEnd = cue.start;
       var wordIndex = -1;
       for (final word in cue.words) {
         if (word.index <= wordIndex ||
+            word.index < cue.firstWord ||
+            (cue.lastWord != null && word.index > cue.lastWord!) ||
             !word.start.isFinite ||
             !word.end.isFinite ||
             word.start < wordEnd - 0.000001 ||
             word.end <= word.start ||
             word.end > cue.end + 0.000001 ||
-            !word.score.isFinite ||
-            word.score < 0 ||
-            word.score > 1) {
+            (word.score != null &&
+                (!word.score!.isFinite ||
+                    word.score! < 0 ||
+                    word.score! > 1))) {
           errors.add('Word timings must be ordered and inside their ayah.');
           break;
         }
@@ -275,6 +411,17 @@ class ReelProject {
     'fit': fit.name,
     'cropX': cropX,
     'cropY': cropY,
+    'videoDuration': videoDuration,
+    'videoTrimStart': videoTrimStart,
+    'videoTrimEnd': videoTrimEnd,
+    'backgroundWidth': backgroundWidth,
+    'backgroundHeight': backgroundHeight,
+    'originalAspect': originalAspect,
+    'exportResolution': exportResolution,
+    'overlayX': overlayX,
+    'overlayY': overlayY,
+    'fontColor': fontColor,
+    'textBackground': textBackground,
     'reviewed': reviewed,
     'cues': cues.map((c) => c.toJson()).toList(),
   };
@@ -296,6 +443,17 @@ class ReelProject {
       fit: BackgroundFit.values.byName(j['fit'] as String),
       cropX: (j['cropX'] as num).toDouble(),
       cropY: (j['cropY'] as num).toDouble(),
+      videoDuration: (j['videoDuration'] as num?)?.toDouble() ?? 0,
+      videoTrimStart: (j['videoTrimStart'] as num?)?.toDouble() ?? 0,
+      videoTrimEnd: (j['videoTrimEnd'] as num?)?.toDouble() ?? 0,
+      backgroundWidth: j['backgroundWidth'] as int? ?? 0,
+      backgroundHeight: j['backgroundHeight'] as int? ?? 0,
+      originalAspect: j['originalAspect'] as bool? ?? false,
+      exportResolution: j['exportResolution'] as int? ?? 1080,
+      overlayX: (j['overlayX'] as num?)?.toDouble() ?? 0.5,
+      overlayY: (j['overlayY'] as num?)?.toDouble() ?? 0.58,
+      fontColor: j['fontColor'] as int? ?? 0xFFFFFFFF,
+      textBackground: j['textBackground'] as bool? ?? true,
       reviewed: j['reviewed'] as bool,
       cues: List.unmodifiable(
         (j['cues'] as List).map(

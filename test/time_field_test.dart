@@ -24,12 +24,12 @@ void main() {
         ),
       ),
     );
-    await tester.enterText(find.byType(TextField), '4');
+    await tester.enterText(find.byType(TextField), '00:00:04:000');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
     expect(saved, 1);
     expect(find.text('Timing was not applied'), findsOneWidget);
-    await tester.enterText(find.byType(TextField), '2');
+    await tester.enterText(find.byType(TextField), '00:00:02:000');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
     expect(saved, 2);
@@ -58,11 +58,11 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
     expect(changes, 0);
-    expect(find.text('0.333'), findsOneWidget);
+    expect(find.text('00:00:00:333'), findsOneWidget);
     await tester.enterText(find.byType(TextField), 'NaN');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
     expect(changes, 0);
-    expect(find.text('Enter seconds ≥ 0'), findsOneWidget);
+    expect(find.text('Use HH:MM:SS:FFF'), findsOneWidget);
   });
 }

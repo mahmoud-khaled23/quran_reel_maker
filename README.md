@@ -2,7 +2,9 @@
 
 An offline Flutter editor for Fedora Linux and Android. Import a recitation,
 trim it, add an image or looping video, select verified Quran text, review each
-ayah's timing, and export a 1080 × 1920, 30 fps H.264/AAC MP4.
+ayah/word timing, and export a 30 fps H.264/AAC MP4 at 144p, 240p, 360p,
+480p, 720p or 1080p. Video can keep its original aspect ratio; quality sets the
+short edge and source-video dimensions cap upscaling.
 
 **Linux automatic ayah/word alignment** uses an optional local Python/ONNX worker
 and verified Quran text. Run `./scripts/setup-alignment.sh`, then choose
@@ -105,11 +107,13 @@ export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin
 ./scripts/setup-android.sh
 flutter doctor --android-licenses
 flutter pub get --enforce-lockfile
+flutter build apk --debug
 ./scripts/build-apk.sh
 # APKs are copied to output/android/
 adb devices -l
 flutter run -d DEVICE_ID
 flutter test integration_test/media_export_test.dart -d DEVICE_ID
+flutter test integration_test/enhanced_media_export_test.dart -d DEVICE_ID
 flutter test integration_test/editor_flow_test.dart -d DEVICE_ID
 ```
 
@@ -141,34 +145,45 @@ or assumed. No connected Android device was present during initial inspection.
 
 ## Editing a reel
 
-1. **Import audio** (MP3, WAV, M4A/AAC, FLAC, Ogg/Opus). The app checks for an audio
-   stream and a usable duration, then copies the file into its local project.
-   A full-source waveform is generated when FFmpeg can decode it.
-2. Move the trim handles or enter **seconds** in the precise fields and press
-   Enter/Done or click outside. Play/seek in the preview to inspect the segment.
-   The playhead and cue timestamps always refer to the original source audio.
-3. Import an image (PNG, JPEG, WebP) or video (MP4, MOV, MKV, WebM). Select **Fill &
-   crop** with horizontal/vertical focus, or **Fit** with black letterboxing.
-   Video starts at its beginning, loops as needed, and its soundtrack is muted.
-4. Choose a surah and ayah range matching complete ayahs in the trim. On Linux,
-   **Align automatically** generates ayah/word drafts using the installed worker.
-   Inspect warnings and the segment timeline; expand word boundaries to seek.
-   **Rerun alignment** uses the current selection; failure/cancellation preserves
-   existing cues. **Create manual timings** replaces the cue list
-   with an evenly spaced draft inside the selected trim. Listen and edit each
-   start/end, or use **Mark start/end** at the playhead. Adjacent boundaries may
-   require shortening one cue before extending its neighbor. Gaps are supported;
-   overlaps, invalid ranges and non-finite times are rejected.
-5. Check **I reviewed the ayahs and their timing** after checking text/recitation.
-   Editing timing or trimming resets this review. This is human confirmation,
-   not a model accuracy claim. Export without text is supported too.
-6. **Save** stores the project; **Projects** reopens it. Creating/opening another
-   project or exporting saves the current project first. Click Save before
-   closing the application: other edits are not continuously autosaved.
-7. **Export MP4** renders the current composition, shows progress, and supports
-   cancellation. Once ready, **Save exported video…** opens a destination chooser.
-   Android uses a Storage Access Framework document and streams the MP4 without
-   loading the whole video into memory. Linux also copies the text-license sidecar.
+1. **Import audio** (MP3, WAV, M4A/AAC, FLAC, Ogg/Opus). Preview with play/pause,
+   seek, and trim handles before **Use selection** copies the source once into
+   the project. Trimming is non-destructive; source files are preserved.
+2. All time displays and inputs use **HH:MM:SS:FFF**, including hours and exactly
+   three millisecond digits: `00:01:23:045`. Enter/Done or clicking outside applies
+   an edit. The playhead and cue times refer to the original source audio.
+   **Preview & trim audio** reopens the selection player; a full-source waveform
+   is available in the editor. Changing trims requires another timing review.
+3. Import an image (PNG/JPEG/WebP) or video (MP4/MOV/MKV/WebM). Video opens its own
+   preview/trim dialog. Only the selected segment loops during composition and
+   export; background sound is muted. **Keep original aspect ratio** defaults on
+   for newly imported videos. Turn it off for a portrait 9:16 reel, then choose
+   **Fit** (letterboxing) or **Fill & crop** with horizontal/vertical crop focus.
+4. Choose the matching surah, ayahs, and **first/last recited words**. Boundary
+   word selectors support partial first/last ayahs. On Linux, **Align automatically**
+   uses the optional installed worker. Inspect warnings and tap word boundaries
+   to seek. **Rerun alignment** uses the current selection and trim; failure or
+   cancellation preserves existing cues. Automatic drafts require review.
+5. Word-timed overlays reveal the recited prefix at word onsets, clear long pauses
+   and ayah ends, and exclude words before the audio trim. **Edit recited words &
+   timing** changes the excerpt or individual times. On Android or without a
+   model, **Create manual timings** creates an explicitly approximate ayah grid.
+   Listen, edit, or use **Mark start/end**. The **Use passage timing** fallback
+   displays only your selected excerpt for the ayah interval and makes no exact
+   word-sync claim. Manual progressive mode requires entered times for every
+   spoken word; it never invents a word grid.
+6. Drag on the composition preview or expand **Text position & color** for sliders,
+   a font-color palette and optional text background. Settings are saved per project
+   and shared by preview and export. The text block stays within the canvas.
+7. Check **I reviewed the ayahs and their timing** after listening. **Save** stores
+   the project; **Projects** reopens it. Creating/opening a project or exporting
+   saves first. Click Save before closing; edits are not continuously autosaved.
+8. **Export MP4** opens a resolution selector and shows the actual output dimensions
+   and filename. `Surah Al Rahman` produces `Surah Al Rahman.mp4`; invalid filename
+   characters are sanitized and existing files receive `(2)`, `(3)`, etc. No
+   silent overwrite occurs. Export shows progress, supports cancellation, and
+   verifies encoded streams/duration. Once ready, **Save exported video…** uses
+   Android's Storage Access Framework or a Linux destination chooser. Linux also
+   saves the license sidecar. Export failures suggest storage/codec remedies.
 
 Projects live under the platform's application-support directory in `projects/`;
 exports are in the sibling `exports/`. Each project has versioned `project.json`
@@ -188,13 +203,35 @@ timestamps, separate from any rendering assets. Font provenance and licenses are
 in [assets/fonts/README.md](assets/fonts/README.md).
 
 Preview and export share Flutter's RTL `TextPainter` and bundled Amiri Quran font.
-Each ayah becomes a transparent PNG overlay with shaped Arabic and diacritics.
+Each distinct visible word prefix becomes a transparent PNG overlay with shaped
+Arabic and diacritics; manual passage timing uses a single excerpt overlay.
 Long ayahs scale down to fit; they are not cut off or paraphrased. FFmpeg composites
 these frames using a generated, safe concat timeline. Caption labels use bundled
-Noto Sans. Output timing is quantized to 30 fps (up to half a frame rounding).
+Noto Sans. Output and preview timing share a 30 fps clock. Word onsets round forward to the
+next frame (less than one frame delay), never earlier than their timestamps.
 Absolute source timings are clipped/rebased once against the trim. Blank frames
-clear text during gaps. The MP4 includes visible source credit and full Tanzil
+clear text during ayah gaps, after the last word, and throughout inter-word gaps
+longer than 750 ms. Shorter pauses hold the recited prefix. These are display
+heuristics, not silence detection; review approximate acoustic boundaries. The MP4 includes visible source credit and full Tanzil
 copyright metadata; local exports also have a notice sidecar.
+
+## Launcher artwork and Linux desktop integration
+
+The supplied `assets/icons/Emerald Quran Media Icon.png` is preserved unchanged.
+Android includes launcher densities and an API 26+ adaptive foreground/background;
+Linux bundles a native window icon and desktop entry. To regenerate derivatives
+with ImageMagick (build-time only), run `./scripts/generate-icons.sh`.
+
+```bash
+# Install the launcher after placing the entire bundle at a persistent location:
+python3 scripts/install-linux-desktop.py /absolute/path/to/output/linux-enhanced
+```
+
+The installer writes to `$XDG_DATA_HOME` (default `~/.local/share`), quotes the
+executable path, and installs hicolor icons. Re-run it after moving the bundle.
+It does not install runtime libraries or the optional alignment worker; choose the
+worker's relocated `scripts/alignment-worker.sh` path in the app if needed.
+See [artwork provenance and regeneration](assets/icons/README.md).
 
 ## Architecture and checks
 
@@ -216,9 +253,13 @@ flutter test --dart-define=MEDIA_EVIDENCE=output/evidence
 ```
 
 Tests cover Quran/font integrity, all ayah references, project persistence,
-invalid trims/cues, safe filenames, rebase/gaps, responsive layouts, real FFmpeg
+invalid trims/cues, hour/millisecond parsing, collision-safe filenames, partial
+word prefixes, style persistence, source-size limits, rebase/gaps, responsive layouts, real FFmpeg
 H.264/AAC export, dimensions/rate/duration, exact audio trim by tone frequency,
-text visibility/blank gaps, looping backgrounds, fast-start, and cancellation.
+progressive text/color/blank gaps, actual trimmed-video loops, fast-start, and cancellation.
+Exports prepare a temporary video segment before looping; this avoids retaining
+unbounded decoded frames in RAM. Temporary overlays/clips are removed on success,
+failure and cancellation. Allow free space for that clip, overlays and the final MP4.
 Fixtures include generated tones/color fields and an attributed CC0 Al-Fatiha
 recording for opt-in real-model tests. See [fixture provenance](test/fixtures/alignment/README.md).
 CI builds the Docker image, runs checks and produces a Linux release bundle.

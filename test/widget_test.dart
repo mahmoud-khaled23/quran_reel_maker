@@ -46,6 +46,59 @@ class AlignedFixtureEditor extends EditorController {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  testWidgets(
+    'Fit centers the background after crop focus changes, matching export',
+    (tester) async {
+      late Directory root;
+      late QuranRepository quran;
+      await tester.runAsync(() async {
+        root = await Directory.systemTemp.createTemp('qrm_fit_');
+        quran = await QuranRepository.load();
+      });
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            servicesProvider.overrideWithValue(
+              AppServices(
+                store: ProjectStore(root),
+                quran: quran,
+                engine: ProcessMediaEngine(),
+                exports: root,
+                playbackError: 'Playback disabled for widget tests.',
+              ),
+            ),
+            editorProvider.overrideWith(FixtureEditor.new),
+          ],
+          child: const QuranReelApp(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(QuranReelApp)),
+      );
+      final changed = container
+          .read(editorProvider)!
+          .copyWith(background: 'media/missing.png', cropX: 0, cropY: 1);
+      container.read(editorProvider.notifier).edit(changed);
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<Image>(find.byType(Image)).alignment,
+        const Alignment(-1, 1),
+      );
+      container
+          .read(editorProvider.notifier)
+          .edit(changed.copyWith(fit: BackgroundFit.contain));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<Image>(find.byType(Image)).alignment,
+        Alignment.center,
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() => root.delete(recursive: true));
+    },
+  );
+
   for (final (size, aligned) in [
     (const Size(1366, 900), false),
     (const Size(390, 844), false),

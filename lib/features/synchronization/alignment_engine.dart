@@ -14,11 +14,15 @@ class AlignmentRequest {
     required this.firstAyah,
     required this.lastAyah,
     this.workerExecutable,
+    this.firstWord = 0,
+    this.lastWord,
   });
   final String audioPath;
   final double trimStart, trimEnd;
   final int surah, firstAyah, lastAyah;
   final String? workerExecutable;
+  final int firstWord;
+  final int? lastWord;
   Map<String, Object> toJson() => {
     'protocol': 1,
     'quranSha256': QuranRepository.textDigest,
@@ -28,6 +32,8 @@ class AlignmentRequest {
     'surah': surah,
     'firstAyah': firstAyah,
     'lastAyah': lastAyah,
+    'firstWord': firstWord,
+    'lastWord': ?lastWord,
   };
 }
 
@@ -242,6 +248,11 @@ List<AyahCue> validateAlignmentResult(
         cue.alignmentScore == null ||
         cue.confidence != null ||
         cue.words.isEmpty ||
+        cue.words.any((word) => word.score == null) ||
+        (i == 0 && cue.firstWord != request.firstWord) ||
+        (i == cues.length - 1 &&
+            request.lastWord != null &&
+            cue.lastWord != request.lastWord) ||
         cue.warnings.isEmpty) {
       throw const FormatException(
         'Invalid alignment references, bounds or quality metadata.',
@@ -267,6 +278,8 @@ List<AyahCue> manualTimingGrid({
   required int last,
   required double start,
   required double end,
+  int firstWord = 0,
+  int? lastWord,
 }) {
   if (surah < 1 ||
       surah > 114 ||
@@ -287,6 +300,8 @@ List<AyahCue> manualTimingGrid({
     (i) => AyahCue(
       surah: surah,
       ayah: first + i,
+      firstWord: i == 0 ? firstWord : 0,
+      lastWord: i == last - first ? lastWord : null,
       start: start + i * step,
       end: start + (i + 1) * step,
     ),

@@ -35,7 +35,7 @@ def validate_request(request):
         raise AlignmentError("protocol", "Worker/app Quran version differs. Update the app and worker together; manual timing is still available.")
     start, end = request.get("trimStart"), request.get("trimEnd")
     if any(type(v) not in (int, float) or not math.isfinite(v) for v in (start, end)) or start < 0 or not 0.5 <= end - start <= MAX_SECONDS:
-        raise AlignmentError("trim", f"Select a complete recitation segment between 0.5 and {MAX_SECONDS} seconds.")
+        raise AlignmentError("trim", f"Select a matching recitation segment from 00:00:00:500 to 00:03:00:000.")
     surah, first, last = (request.get(k) for k in ("surah", "firstAyah", "lastAyah"))
     if any(type(v) is not int for v in (surah, first, last)) or not 1 <= surah <= 114 or not 1 <= first <= last <= 286:
         raise AlignmentError("selection", "Select a valid surah and ayah range.")
@@ -51,9 +51,18 @@ def validate_request(request):
             s, a, text = line.split("|", 2)
             verses[int(s), int(a)] = text
     try:
-        return [verses[surah, a] for a in range(first, last + 1)]
+        selection = [verses[surah, a] for a in range(first, last + 1)]
     except KeyError as error:
         raise AlignmentError("selection", "The selected ayah does not exist in the verified dataset.") from error
+
+    first_word = request.get("firstWord", 0)
+    last_word = request.get("lastWord", len(selection[-1].split()) - 1)
+    if (type(first_word) is not int or type(last_word) is not int or
+            not 0 <= first_word < len(selection[0].split()) or
+            not 0 <= last_word < len(selection[-1].split()) or
+            (len(selection) == 1 and first_word > last_word)):
+        raise AlignmentError("selection", "Select valid first/last words in the boundary ayahs.")
+    return selection
 
 
 def decode(request):
@@ -132,10 +141,10 @@ def align(request, model_dir=DEFAULT_MODEL, progress=lambda *_: None):
     audio = decode(request)
     vocab = json.loads((model_dir / "vocab.json").read_text())
     labels = alphabet(vocab)
-    target, owners, words = tokenize(verses, labels)
+    target, owners, words = tokenize(verses, labels, request.get("firstWord", 0), request.get("lastWord"))
     estimated_frames = max(0, (len(audio) - 400) // 320 + 1)
     if not len(target) or len(target) > estimated_frames or estimated_frames * (2 * len(target) + 1) > 40_000_000:
-        raise AlignmentError("selection_size", "Too much text for this audio/worker memory limit. Select fewer complete ayahs and a matching shorter audio segment.")
+        raise AlignmentError("selection_size", "Too much text for this audio/worker memory limit. Select fewer ayahs or boundary words and a matching shorter audio segment.")
     logits, clocks = infer(audio, model_dir, progress)
     progress(0.9, "Aligning verified ayah text and checking boundaries…")
     logp = fold_logits(logits, vocab, labels)
@@ -157,6 +166,8 @@ def align(request, model_dir=DEFAULT_MODEL, progress=lambda *_: None):
         global_warnings.append("Possible repeated/omitted words, vocalization differences or background noise. Check the entire selection; repeated phrases are not separately segmented.")
     cues = [{"surah": request["surah"], "ayah": request["firstAyah"] + i,
              "timingSource": "automatic", "alignmentModel": MANIFEST["id"],
+             "firstWord": request.get("firstWord", 0) if i == 0 else 0,
+             "lastWord": request.get("lastWord", len(verses[i].split()) - 1) if i == len(verses) - 1 else len(verses[i].split()) - 1,
              "warnings": [], "words": []} for i in range(len(verses))]
     for word_id, (ayah_index, word_index) in enumerate(words):
         tokens = [i for i, owner in enumerate(owners) if owner == word_id]
@@ -174,13 +185,15 @@ def align(request, model_dir=DEFAULT_MODEL, progress=lambda *_: None):
         if end - start > 4:
             cue["warnings"].append("Long word/elongation or internal pause; verify the boundary.")
     for cue in cues:
+        if not cue["words"]:
+            raise AlignmentError("selection", "The selected ayah contains no spoken words. Include a recited word, not only a pause mark.")
         cue["start"], cue["end"] = cue["words"][0]["start"], cue["words"][-1]["end"]
         cue["alignmentScore"] = float(np.mean([word["score"] for word in cue["words"]]))
         if any(b["start"] - a["end"] > 1.5 for a, b in zip(cue["words"], cue["words"][1:])):
             cue["warnings"].append("Long pause inside the ayah; check for a repeated phrase.")
         cue["warnings"] = list(dict.fromkeys(global_warnings + cue["warnings"]))
     if cues[0]["start"] - request["trimStart"] < 0.15 or request["trimEnd"] - cues[-1]["end"] < 0.15:
-        cues[0]["warnings"].append("Speech touches a trim edge. Include the complete first/last ayah and rerun if any syllable is cut.")
+        cues[0]["warnings"].append("Speech touches a trim edge. Check the selected first/last word and include its complete syllables before rerunning.")
     if float(np.mean([cue["alignmentScore"] for cue in cues])) < 0.15:
         raise AlignmentError("low_quality", "Acoustic alignment is too uncertain. Try cleaner audio or a shorter selection; manual timings remain available.")
     return {"timeline": "source", "model": MANIFEST["id"], "revision": MANIFEST["revision"],

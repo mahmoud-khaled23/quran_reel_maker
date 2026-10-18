@@ -91,9 +91,28 @@ void main() {
           '1',
           '${root.path}/bg.png',
         ]);
+        await engine.run([
+          '-y',
+          '-v',
+          'error',
+          '-loop',
+          '1',
+          '-i',
+          '${root.path}/bg.png',
+          '-t',
+          '3',
+          '-c:v',
+          await engine.encoder(),
+          '-pix_fmt',
+          'yuv420p',
+          '-threads',
+          '1',
+          '${root.path}/bg.mp4',
+        ]);
         FilePicker.platform = FixturePicker([
           '${root.path}/audio.wav',
           '${root.path}/bg.png',
+          '${root.path}/bg.mp4',
         ]);
         final services = AppServices(
           store: ProjectStore(Directory('${root.path}/projects')),
@@ -118,26 +137,97 @@ void main() {
               : find.text(text);
           await tester.ensureVisible(target);
           await tester.tap(target);
-          await idle(allowDialog: text == 'Projects');
+          await idle(
+            allowDialog: [
+              'Projects',
+              'Import audio',
+              'Import video',
+            ].contains(text),
+          );
         }
 
         await tapText('Import audio');
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Selection start'),
+          '00:00:00:500',
+        );
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump();
+        for (var i = 0; i < 50; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+          if (tester
+                  .widget<IconButton>(
+                    find.byWidgetPredicate(
+                      (w) =>
+                          w is IconButton &&
+                          w.tooltip == 'Play selected segment',
+                    ),
+                  )
+                  .onPressed !=
+              null) {
+            break;
+          }
+        }
+        await tester.tap(find.byTooltip('Play selected segment'));
+        await tester.pump(const Duration(milliseconds: 700));
+        expect(find.byTooltip('Pause segment'), findsOneWidget);
+        await tester.tap(find.byTooltip('Pause segment'));
+        await tapText('Use selection');
         expect(find.text('Replace audio'), findsOneWidget);
         final trim = find.widgetWithText(TextField, 'Trim start');
         await tester.ensureVisible(trim);
-        await tester.enterText(trim, '1');
+        await tester.enterText(trim, '00:00:01:000');
         await tester.testTextInput.receiveAction(TextInputAction.done);
         await idle();
         await tapText('Import image');
+        await tapText('Import video');
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Selection start'),
+          '00:00:00:500',
+        );
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump();
+        await tester.enterText(
+          find.widgetWithText(TextField, 'Selection end'),
+          '00:00:01:500',
+        );
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump();
+        for (var i = 0; i < 50; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+          if (tester
+                  .widget<IconButton>(
+                    find.byWidgetPredicate(
+                      (w) =>
+                          w is IconButton &&
+                          w.tooltip == 'Play selected segment',
+                    ),
+                  )
+                  .onPressed !=
+              null) {
+            break;
+          }
+        }
+        await tester.ensureVisible(find.byTooltip('Play selected segment'));
+        await tester.tap(find.byTooltip('Play selected segment'));
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.byTooltip('Pause segment'), findsOneWidget);
+        await tester.tap(find.byTooltip('Pause segment'));
+        await tapText('Use selection');
         await tapText('Create manual timings');
         await tapText('I reviewed the ayahs and their timing');
         await tapText('Save');
         final saved = (await services.store.list()).single;
         expect(saved.trimStart, 1);
+        expect(saved.videoTrimStart, 0.5);
+        expect(saved.videoTrimEnd, 1.5);
         expect(saved.cues.length, 7);
         expect(saved.reviewed, isTrue);
         await File('${root.path}/audio.wav').delete();
         await File('${root.path}/bg.png').delete();
+        await File('${root.path}/bg.mp4').delete();
         await tapText('Projects');
         await tapText(saved.title);
         // A legitimate saved timeline may contain different surahs. Opening it
@@ -159,7 +249,14 @@ void main() {
         await tapText('Projects');
         await tapText(saved.title);
         expect(tester.takeException(), isNull);
-        await tapText('Export MP4');
+        await tester.ensureVisible(find.text('Export MP4'));
+        await tester.tap(find.text('Export MP4'));
+        for (var i = 0; i < 50 && !tester.any(find.text('Render MP4')); i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.tap(find.text('Render MP4'));
+        await idle();
         expect(find.text('Save exported video…'), findsOneWidget);
         final exports = await services.exports
             .list()

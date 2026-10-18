@@ -1,3 +1,5 @@
+import '../audio_editor/time_format.dart';
+
 import 'package:flutter/material.dart';
 
 import '../../models/reel_project.dart';
@@ -34,7 +36,7 @@ class AyahTimeline extends StatelessWidget {
                   bottom: 4,
                   child: Tooltip(
                     message:
-                        '${cue.surah}:${cue.ayah} · ${cue.start.toStringAsFixed(2)}–${cue.end.toStringAsFixed(2)} s',
+                        '${cue.surah}:${cue.ayah} · ${timeLabel(cue.start)}–${timeLabel(cue.end)}',
                     child: Semantics(
                       button: true,
                       label: 'Seek to ${cue.surah}:${cue.ayah}',

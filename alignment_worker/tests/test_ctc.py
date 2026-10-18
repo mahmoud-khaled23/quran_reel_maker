@@ -42,7 +42,7 @@ class CtcTests(unittest.TestCase):
 
     def test_request_rejects_bad_time_and_quran_version(self):
         request = {"protocol": 1, "quranSha256": QURAN_SHA256, "trimStart": 0, "trimEnd": float("nan")}
-        with self.assertRaisesRegex(AlignmentError, "complete recitation"):
+        with self.assertRaisesRegex(AlignmentError, "matching recitation"):
             validate_request(request)
         request["quranSha256"] = "wrong"
         with self.assertRaisesRegex(AlignmentError, "Quran version"):

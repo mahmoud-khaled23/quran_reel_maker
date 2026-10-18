@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../features/quran_text/quran_repository.dart';
+import '../features/quran_text/quran_words.dart';
 import '../features/synchronization/alignment_engine.dart';
 import '../media_engine/media_engine.dart';
 import '../models/reel_project.dart';
@@ -42,8 +43,24 @@ class EditorController extends Notifier<ReelProject?> {
           .quran
           .verse(cue.surah, cue.ayah)
           .split(RegExp(r'\s+'));
-      if (cue.words.any((word) => word.index >= words.length)) {
+      if (cue.firstWord >= words.length ||
+          (cue.lastWord != null && cue.lastWord! >= words.length) ||
+          cue.words.any((word) => word.index >= words.length)) {
         throw const FormatException('Invalid Quran word reference.');
+      }
+      if (cue.words.isNotEmpty) {
+        final indices = cue.words.map((w) => w.index).toSet();
+        for (
+          var i = cue.firstWord;
+          i <= (cue.lastWord ?? words.length - 1);
+          i++
+        ) {
+          if (isSpokenToken(words[i]) && !indices.contains(i)) {
+            throw const FormatException(
+              'Word timing is incomplete. Select the recited excerpt and time each spoken word, or use passage timing.',
+            );
+          }
+        }
       }
     }
     state = project;
@@ -52,7 +69,7 @@ class EditorController extends Notifier<ReelProject?> {
   void edit(ReelProject project) {
     final errors = project.validate();
     if (errors.isNotEmpty) throw FormatException(errors.join('\n'));
-    state = project;
+    replace(project);
   }
 
   Future<void> save() async {

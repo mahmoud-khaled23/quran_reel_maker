@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import '../features/export/export_settings.dart';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -22,7 +24,16 @@ Future<String?> saveExportCopy(File file) async {
       ? destination
       : '$destination.mp4';
   if (p.equals(file.path, target)) return target;
-  await file.copy(target);
-  await File('${file.path}.txt').copy('$target.txt');
-  return target;
+  final reserved = await reserveExport(
+    Directory(p.dirname(target)),
+    p.basenameWithoutExtension(target),
+  );
+  try {
+    await file.copy(reserved.path);
+    await File('${file.path}.txt').copy('${reserved.path}.txt');
+    return reserved.path;
+  } catch (_) {
+    await reserved.delete();
+    rethrow;
+  }
 }

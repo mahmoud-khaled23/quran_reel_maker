@@ -126,3 +126,9 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# Native launcher/window icon, independent of Flutter UI assets.
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/packaging/icons/quran-reel-maker-512.png"
+  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/icons" RENAME "com.example.quran_reel_maker.png" COMPONENT Runtime)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/packaging/com.example.quran_reel_maker.desktop"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}/share/applications" COMPONENT Runtime)

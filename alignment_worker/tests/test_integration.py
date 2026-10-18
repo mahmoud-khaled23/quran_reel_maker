@@ -74,6 +74,16 @@ class RealAlignmentTests(unittest.TestCase):
                 self.assertAlmostEqual(changed[boundary], baseline[boundary] - 14 + 5 + i * 2, delta=0.7)
         self.assertGreater(shifted_cues[1]["start"] - shifted_cues[0]["end"], 1.5)
 
+    def test_partial_ayah_keeps_original_word_indices(self):
+        words = self.baseline["cues"][0]["words"]
+        selection = request(start=words[1]["start"] - 0.1, end=words[2]["end"] + 0.1, first=2, last=2)
+        selection.update(firstWord=1, lastWord=2)
+        result = align(selection)["cues"][0]
+        self.assertEqual([w["index"] for w in result["words"]], [1, 2])
+        self.assertEqual((result["firstWord"], result["lastWord"]), (1, 2))
+        self.assertAlmostEqual(result["start"], words[1]["start"], delta=0.5)
+        self.assertAlmostEqual(result["end"], words[2]["end"], delta=0.5)
+
     def test_silence_is_rejected_before_inference(self):
         file = self.temp / "silence.wav"
         write_wave(file, np.zeros(32000))

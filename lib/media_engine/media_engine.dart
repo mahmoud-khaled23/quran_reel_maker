@@ -35,10 +35,13 @@ class MediaInfo {
     required this.duration,
     required this.hasAudio,
     required this.hasVideo,
+    this.width = 0,
+    this.height = 0,
   });
   final double duration;
   final bool hasAudio;
   final bool hasVideo;
+  final int width, height;
 }
 
 abstract class MediaEngine {
@@ -63,10 +66,43 @@ abstract class MediaEngine {
         .cast<Map<String, dynamic>>();
     final duration =
         double.tryParse('${(json['format'] as Map?)?['duration']}') ?? 0;
+    final videos = streams.where(
+      (s) =>
+          s['codec_type'] == 'video' &&
+          (s['disposition'] as Map?)?['attached_pic'] != 1,
+    );
+    final video = videos.isEmpty ? <String, dynamic>{} : videos.first;
+    var width = (video['width'] as num?)?.toDouble() ?? 0;
+    var height = (video['height'] as num?)?.toDouble() ?? 0;
+    final sar = '${video['sample_aspect_ratio']}'
+        .split(':')
+        .map(double.tryParse)
+        .toList();
+    if (sar.length == 2 &&
+        sar[0] != null &&
+        sar[1] != null &&
+        sar[0]! > 0 &&
+        sar[1]! > 0) {
+      width *= sar[0]! / sar[1]!;
+    }
+    var rotation =
+        double.tryParse('${(video['tags'] as Map?)?['rotate']}') ?? 0;
+    for (final side in video['side_data_list'] as List? ?? []) {
+      if (side['rotation'] is num) {
+        rotation = (side['rotation'] as num).toDouble();
+      }
+    }
+    if (rotation.abs().round() % 180 == 90) {
+      final old = width;
+      width = height;
+      height = old;
+    }
     return MediaInfo(
+      width: width.round(),
+      height: height.round(),
       duration: duration,
       hasAudio: streams.any((s) => s['codec_type'] == 'audio'),
-      hasVideo: streams.any((s) => s['codec_type'] == 'video'),
+      hasVideo: videos.isNotEmpty,
     );
   }
 

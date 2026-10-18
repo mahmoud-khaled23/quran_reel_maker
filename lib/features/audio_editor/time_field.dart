@@ -1,11 +1,7 @@
 import 'package:flutter/material.dart';
 
-String timeLabel(double seconds) {
-  final milliseconds = (seconds * 1000).round();
-  final minutes = milliseconds ~/ 60000;
-  return '$minutes:${((milliseconds ~/ 1000) % 60).toString().padLeft(2, '0')}.'
-      '${(milliseconds % 1000).toString().padLeft(3, '0')}';
-}
+import 'time_format.dart';
+export 'time_format.dart';
 
 class TimeField extends StatefulWidget {
   const TimeField({
@@ -25,14 +21,14 @@ class TimeField extends StatefulWidget {
 
 class _TimeFieldState extends State<TimeField> {
   late final TextEditingController controller = TextEditingController(
-    text: widget.value.toStringAsFixed(3),
+    text: timeLabel(widget.value),
   );
   String? error;
   @override
   void didUpdateWidget(TimeField oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.value != widget.value) {
-      controller.text = widget.value.toStringAsFixed(3);
+      controller.text = timeLabel(widget.value);
       error = null;
     }
   }
@@ -45,13 +41,13 @@ class _TimeFieldState extends State<TimeField> {
 
   void submit(String text) {
     // Display precision must not rewrite a valid, more precise cue on blur.
-    if (text == widget.value.toStringAsFixed(3)) {
+    if (text == timeLabel(widget.value)) {
       setState(() => error = null);
       return;
     }
-    final value = double.tryParse(text);
+    final value = parseTime(text);
     if (value == null || !value.isFinite || value < 0) {
-      setState(() => error = 'Enter seconds ≥ 0');
+      setState(() => error = 'Use HH:MM:SS:FFF');
       return;
     }
     final accepted = widget.onChanged(value);
@@ -61,10 +57,10 @@ class _TimeFieldState extends State<TimeField> {
   @override
   Widget build(BuildContext context) => TextField(
     controller: controller,
-    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+    keyboardType: TextInputType.datetime,
     decoration: InputDecoration(
       labelText: widget.label,
-      suffixText: 's',
+      hintText: 'HH:MM:SS:FFF',
       errorText: error,
     ),
     onSubmitted: submit,
