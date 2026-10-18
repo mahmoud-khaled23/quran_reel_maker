@@ -1564,8 +1564,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     children: [
                       background,
                       LayoutBuilder(
-                        builder: (context, bounds) => GestureDetector(
-                          onPanUpdate: locked
+                        // Draggable claims movement before the enclosing vertical
+                        // scroll view. A pan recognizer loses vertical drags to it.
+                        builder: (context, bounds) => Draggable<Object>(
+                          feedback: const SizedBox.shrink(),
+                          maxSimultaneousDrags: locked ? 0 : 1,
+                          onDragUpdate: locked
                               ? null
                               : (details) => edit(
                                   project!.copyWith(

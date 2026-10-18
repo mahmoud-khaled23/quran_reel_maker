@@ -1,5 +1,63 @@
 # Validation record
 
+## Request acceptance recheck (2026-10-18)
+
+The owner's full enhancement request was re-read and mapped to all eight feature
+groups and 15 acceptance criteria in [ACCEPTANCE.md](ACCEPTANCE.md).
+
+An additional interaction test found that the preview's pan recognizer lost
+vertical/diagonal drags to its enclosing scroll view. The preview now uses
+Flutter's draggable interaction with an invisible feedback widget; its actual
+text continues to move through the shared painter. Desktop (1366×900) and phone
+(390×844) tests now drag the overlay, select gold text, toggle the background and
+save/reload the resulting settings. Both pass. The test fixture was corrected to
+load the real fonts and include its media path before checking saved projects.
+
+Android runtime acceptance remains **blocked by emulator startup**, not passed:
+
+- `adb devices -l` found no attached physical device. `emulator -list-avds` did
+  reveal two existing configurations, and `emulator -accel-check` reported usable
+  KVM. This improves on the preceding check, which only looked for connected devices.
+- The API 35 `Medium_Phone_API_35` AVD was attempted read-only without snapshots,
+  first with `swiftshader_indirect` and then supported `software` graphics with
+  Vulkan disabled. Both emulator processes terminated with exit 139 before boot.
+- The second `my_a52s` configuration uses an API 37 image; the same read-only,
+  software-rendered attempt also terminated with exit 139 before boot.
+- `flutter test integration_test/enhanced_media_export_test.dart -d emulator-5580
+  --no-pub` could not retrieve device properties (`error: closed`, then no supported
+  device). **No Android application test executed or passed in these attempts.**
+  Every attempt used `-read-only -no-snapshot`; no wipe or snapshot save was
+  requested. Logs are under `output/acceptance-android-emulator*.log`
+  and `output/acceptance-android-enhanced.log`. A working emulator or connected
+  device is still required for native Android acceptance, launcher appearance,
+  physical playback and real document-provider checks.
+
+- Final `flutter analyze --no-pub`: **no issues**. `flutter test --no-pub`:
+  **42 passed**, including both new drag/color/persistence interaction tests
+  and the real FFmpeg regressions. Logs: `output/acceptance-analyze.log` and
+  `output/acceptance-flutter-tests.log`.
+- `flutter build apk --debug --no-pub`: **passed** (27.1-second Gradle build).
+  `bash scripts/build-apk.sh`: **all three release ABIs passed** (80.1-second
+  Gradle build). Debug and release artifacts in `output/android/` were refreshed;
+  `apksigner verify` and `zipalign -c -P 16 4` passed for all four packages.
+  Logs: `output/acceptance-android-debug.log` and
+  `output/acceptance-android-release.log`.
+- `docker compose run --rm dev bash scripts/build-linux.sh output/linux-acceptance`:
+  **passed**. The complete updated bundle is `output/linux-acceptance/` so an older
+  running bundle was not overwritten. It was launched on Fedora; native players
+  and EGL rendering initialized and the process remained running. Existing GTK
+  accessibility/cursor and optional CUDA-probe warnings were nonfatal.
+- `python3 scripts/install-linux-desktop.py
+  /home/ma7moud-5aled/Projects/quran_reel_maker/output/linux-acceptance`: installed
+  the app launcher and four hicolor icon sizes into the owner's user data folder.
+  `desktop-file-validate` passed on the actual installed entry at
+  `~/.local/share/applications/com.example.quran_reel_maker.desktop`.
+- `dart format --output=none --set-exit-if-changed lib test integration_test`:
+  **34 files checked, no changes**. `git diff --check` and documentation-relative
+  link checks passed. The Python worker/export algorithm did not change in this
+  recheck; their preceding 12 offline-model tests and two native workflow results
+  are retained below rather than reported as new executions.
+
 ## Editing, progressive words and branding (2026-10-18)
 
 This follow-up extends the existing Riverpod/MediaKit/FFmpeg editor and local CTC

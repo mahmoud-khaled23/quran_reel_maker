@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quran_reel_maker/app.dart';
 import 'package:quran_reel_maker/core/app_services.dart';
+import 'package:quran_reel_maker/features/preview/ayah_painter.dart';
 import 'package:quran_reel_maker/features/quran_text/quran_repository.dart';
 import 'package:quran_reel_maker/media_engine/media_engine.dart';
 import 'package:quran_reel_maker/models/reel_project.dart';
@@ -98,6 +99,111 @@ void main() {
       await tester.runAsync(() => root.delete(recursive: true));
     },
   );
+
+  for (final size in [const Size(1366, 900), const Size(390, 844)]) {
+    testWidgets(
+      'drag and color controls update the shared painter and saved project at $size',
+      (tester) async {
+        late Directory root;
+        late QuranRepository quran;
+        await tester.runAsync(() async {
+          root = await Directory.systemTemp.createTemp('qrm_style_');
+          quran = await QuranRepository.load();
+          await File('${root.path}/widget-test/media/audio.ogg')
+              .create(recursive: true);
+          await (FontLoader(
+            'NotoSans',
+          )..addFont(rootBundle.load('assets/fonts/NotoSans.ttf'))).load();
+          await (FontLoader(
+            'AmiriQuran',
+          )..addFont(rootBundle.load('assets/fonts/AmiriQuran.ttf'))).load();
+        });
+        final store = ProjectStore(root);
+        await tester.binding.setSurfaceSize(size);
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              servicesProvider.overrideWithValue(
+                AppServices(
+                  store: store,
+                  quran: quran,
+                  engine: ProcessMediaEngine(),
+                  exports: root,
+                  playbackError: 'Playback disabled for widget tests.',
+                ),
+              ),
+              editorProvider.overrideWith(FixtureEditor.new),
+            ],
+            child: const QuranReelApp(),
+          ),
+        );
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(QuranReelApp)),
+        );
+        container
+            .read(editorProvider.notifier)
+            .edit(
+              const ReelProject(
+                id: 'widget-test',
+                audio: 'media/audio.ogg',
+                audioDuration: 3,
+                trimEnd: 3,
+                cues: [
+                  AyahCue(surah: 1, ayah: 1, start: 0, end: 3, lastWord: 0),
+                ],
+              ),
+            );
+        await tester.pumpAndSettle();
+        final canvas = find.byWidgetPredicate(
+          (w) => w is CustomPaint && w.painter is AyahPainter,
+        );
+        AyahPainter painter() =>
+            tester.widget<CustomPaint>(canvas).painter! as AyahPainter;
+        expect(painter().text, isNotEmpty);
+        await tester.ensureVisible(canvas);
+        await tester.timedDrag(
+          canvas,
+          const Offset(48, 64),
+          const Duration(milliseconds: 400),
+        );
+        await tester.pumpAndSettle();
+        final moved = container.read(editorProvider)!;
+        expect(moved.overlayX, greaterThan(0.5));
+        expect(moved.overlayY, greaterThan(0.58));
+        expect(painter().x, moved.overlayX);
+        expect(painter().y, moved.overlayY);
+        await tester.ensureVisible(find.text('Text position & color'));
+        await tester.tap(find.text('Text position & color'));
+        await tester.pumpAndSettle();
+        final gold = find.byWidgetPredicate(
+          (w) =>
+              w is ChoiceChip &&
+              w.label is Icon &&
+              (w.label as Icon).color == const Color(0xFFFFD77A),
+        );
+        await tester.ensureVisible(gold);
+        await tester.tap(gold);
+        await tester.pumpAndSettle();
+        expect(painter().fontColor, 0xFFFFD77A);
+        await tester.ensureVisible(find.text('Text background'));
+        await tester.tap(find.text('Text background'));
+        await tester.pumpAndSettle();
+        expect(painter().textBackground, isFalse);
+        await tester.runAsync(() async {
+          await container.read(editorProvider.notifier).save();
+          final saved = (await store.list()).single;
+          expect(saved.overlayX, moved.overlayX);
+          expect(saved.overlayY, moved.overlayY);
+          expect(saved.fontColor, 0xFFFFD77A);
+          expect(saved.textBackground, isFalse);
+        });
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        await tester.binding.setSurfaceSize(null);
+        await tester.runAsync(() => root.delete(recursive: true));
+      },
+    );
+  }
 
   for (final (size, aligned) in [
     (const Size(1366, 900), false),

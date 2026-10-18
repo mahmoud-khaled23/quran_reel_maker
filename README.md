@@ -12,7 +12,9 @@ and verified Quran text. Run `./scripts/setup-alignment.sh`, then choose
 SHA-256-verified weights; subsequent inference works offline without Docker.
 Automatic timings require listening review. Android retains manual timing. See
 [setup, model provenance and limitations](docs/ALIGNMENT.md) and
-[executed checks](docs/VALIDATION.md).
+[executed checks](docs/VALIDATION.md). The [request acceptance audit](docs/ACCEPTANCE.md)
+maps every feature group and all 15 acceptance criteria to implementation,
+evidence and remaining device/manual checks.
 
 ## Start with Docker
 
@@ -224,7 +226,7 @@ with ImageMagick (build-time only), run `./scripts/generate-icons.sh`.
 
 ```bash
 # Install the launcher after placing the entire bundle at a persistent location:
-python3 scripts/install-linux-desktop.py /absolute/path/to/output/linux-enhanced
+python3 scripts/install-linux-desktop.py /absolute/path/to/output/linux
 ```
 
 The installer writes to `$XDG_DATA_HOME` (default `~/.local/share`), quotes the
