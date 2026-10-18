@@ -6,6 +6,13 @@ ayah/word timing, and export a 30 fps H.264/AAC MP4 at 144p, 240p, 360p,
 480p, 720p or 1080p. Video can keep its original aspect ratio; quality sets the
 short edge and source-video dimensions cap upscaling.
 
+The independent **Video Trimmer** page splits ordinary videos into 30-, 60-,
+90-second or custom fractional-duration MP4s. Preview boundaries, edit the project
+and segment names, process, then save the batch to a chosen folder. After rendering
+a reel, **Split completed reel…** opens the same page with the finished MP4,
+including its Quran overlays and audio. Single-file export remains available.
+See [video segmentation workflow and limitations](docs/VIDEO_TRIMMER.md).
+
 **Linux automatic ayah/word alignment** uses an optional local Python/ONNX worker
 and verified Quran text. Run `./scripts/setup-alignment.sh`, then choose
 `scripts/alignment-worker.sh` in the editor. Setup explicitly downloads pinned,
@@ -116,6 +123,7 @@ adb devices -l
 flutter run -d DEVICE_ID
 flutter test integration_test/media_export_test.dart -d DEVICE_ID
 flutter test integration_test/enhanced_media_export_test.dart -d DEVICE_ID
+flutter test integration_test/video_segmentation_test.dart -d DEVICE_ID
 flutter test integration_test/editor_flow_test.dart -d DEVICE_ID
 ```
 

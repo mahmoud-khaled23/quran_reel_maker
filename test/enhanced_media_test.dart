@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quran_reel_maker/features/export/export_service.dart';
 import 'package:quran_reel_maker/features/quran_text/quran_repository.dart';
+import 'package:quran_reel_maker/features/video_trimmer/segmentation_service.dart';
 import 'package:quran_reel_maker/media_engine/media_engine.dart';
 import 'package:quran_reel_maker/models/reel_project.dart';
 
@@ -109,7 +110,7 @@ void main() {
           expect(info.width, 426);
           expect(info.height, 240);
           expect(info.duration, closeTo(4, 0.1));
-          Future<List<int>> frame(double at) async {
+          Future<List<int>> frame(double at, {File? input}) async {
             final path = '${root.path}/frame-$at.rgb';
             await engine.run([
               '-y',
@@ -118,7 +119,7 @@ void main() {
               '-ss',
               '$at',
               '-i',
-              file.path,
+              (input ?? file).path,
               '-frames:v',
               '1',
               '-pix_fmt',
@@ -153,6 +154,35 @@ void main() {
           expect(gold(second), greaterThan(gold(first)));
           expect(gold(third), greaterThan(gold(second)));
           expect(gold(blank), 0);
+          // Split the completed reel, not its uncomposited background. Each
+          // output must retain the matching progressive Quran overlay and audio.
+          final trimmer = SegmentationService(engine);
+          final split = await trimmer.split(
+            await trimmer.inspect(file),
+            1,
+            output,
+            token: CancellationToken(),
+            progress: (_, _) {},
+          );
+          expect(split.files, hasLength(4));
+          final splitGold = <int>[];
+          for (final segment in split.files) {
+            splitGold.add(gold(await frame(0.25, input: segment)));
+            expect((await engine.inspect(segment.path)).hasAudio, true);
+            expect(
+              await File('${segment.path}.txt').readAsString(),
+              await File('${file.path}.txt').readAsString(),
+            );
+          }
+          expect(splitGold[0], greaterThan(10));
+          expect(splitGold[1], greaterThan(splitGold[0]));
+          expect(splitGold[2], greaterThan(splitGold[1]));
+          expect(splitGold[3], 0);
+          await split.dispose();
+          expect(
+            await file.exists(),
+            true,
+          ); // Full single-file export survives.
           // Corner pixels must remain green across several repeats; red/blue source
           // regions lie outside the selected segment and must never be exported.
           for (final data in [first, second, third, blank]) {

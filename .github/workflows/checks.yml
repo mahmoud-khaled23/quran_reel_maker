@@ -38,6 +38,8 @@ jobs:
         run: docker compose run --rm checks
       - name: Native editor workflow in a private display
         run: ./scripts/docker-integration-test.sh
+      - name: Native standalone video trimmer workflow
+        run: docker compose run --rm dev bash scripts/check-trimmer-ui.sh
       - name: Build Linux release
         run: docker compose run --rm build-linux
       - name: Preserve executable permissions in the artifact

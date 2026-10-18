@@ -41,7 +41,7 @@ ExportSize exportSize(ReelProject project) {
   return ExportSize(even(width), even(height));
 }
 
-String exportStem(String title) {
+String exportStem(String title, {int maxBytes = 160}) {
   var value = title
       .replaceAll(RegExp(r'[\x00-\x1f\x7f<>:"/\\|?*]'), '_')
       .trim();
@@ -57,7 +57,7 @@ String exportStem(String title) {
     value = '_$value';
   }
   final runes = value.runes.toList();
-  while (utf8.encode(String.fromCharCodes(runes)).length > 160) {
+  while (utf8.encode(String.fromCharCodes(runes)).length > maxBytes) {
     runes.removeLast();
   }
   return String.fromCharCodes(runes).replaceAll(RegExp(r'[. ]+$'), '');

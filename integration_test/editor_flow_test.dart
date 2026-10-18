@@ -267,6 +267,17 @@ void main() {
           (await engine.inspect(exports.single.path)).duration,
           closeTo(3, 0.1),
         );
+        await tapText('Split completed reel…');
+        expect(find.text('Completed reel'), findsOneWidget);
+        expect(find.text(exports.single.uri.pathSegments.last), findsOneWidget);
+        expect(
+          find.textContaining('Splitting the completed reel:'),
+          findsOneWidget,
+        );
+        await tester.pageBack();
+        await idle();
+        expect(find.text('Save exported video…'), findsOneWidget);
+        expect(await File(exports.single.path).exists(), true);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox());
         await idle();

@@ -1,5 +1,82 @@
 # Validation record
 
+## Dedicated Video Trimmer (2026-10-18)
+
+Architecture inspection found the Riverpod editor, MediaKit preview players,
+`MediaEngine` Linux/Android boundary, verified completed `lastExport` MP4 and
+existing Linux/SAF save service. The feature adds a separate route/state and a
+single-pass segmentation service using those dependencies. Quran alignment and
+reel composition remain separate. See [workflow, acceptance mapping and cut
+limitations](VIDEO_TRIMMER.md).
+
+Executed checks for this feature:
+
+- Host `flutter analyze --no-pub`: **no issues**; `flutter test --no-pub`:
+  **53 passed** using Fedora FFmpeg/OpenH264. Logs: `output/trimmer-analyze.log`
+  and `output/trimmer-tests.log`.
+- Container `bash scripts/check.sh`: **53 passed**, formatting unchanged and
+  analysis clean, using Ubuntu FFmpeg/x264. This final run also includes the
+  silent-video case. Log: `output/trimmer-docker-checks.log`.
+- Real 120-second H.264/AAC sources produced **four 30-second, two 60-second,
+  and 90+30-second outputs**. Fractional 1.25-second cuts retained all 37 distinct
+  frames from a 3.7-second source, in order without duplicates; measured chirp
+  frequencies verified audio/source timing. Portrait metadata, stream copy,
+  re-encoding, silent video, final remainders and cancellation/storage cleanup
+  are exercised. Fixtures are generated mathematical frames/tones.
+- The existing real progressive Quran export test now also splits the completed
+  reel, checks increasing gold Arabic word prefixes and the final blank segment,
+  retains audio/notices and confirms the full MP4 remains available.
+- Desktop and phone widget tests pass at 1366×900 and 390×844 for independent
+  navigation, source-derived names, custom names surviving project edits,
+  presets/custom durations, invalid inputs and unchanged reel state.
+- `bash scripts/check-trimmer-ui.sh` in Docker/private Xvfb: **passed**. Actual
+  import, native video play/pause, source/generated previews, custom splitting,
+  renaming, batch saving with an existing destination filename and temporary
+  cleanup ran; only OS file/folder dialogs were replaced. The final screenshot
+  review refined card widths and corrected a misleading decode warning for an
+  unavailable audio device. Final analysis, both responsive tests and the native
+  workflow passed again (20 seconds for the native test). Screenshots:
+  `output/trimmer-evidence/trimmer-source.png` and `trimmer-segments.png`.
+- `bash scripts/check-editor-ui.sh` in Docker/private Xvfb: **passed** (26 seconds),
+  including normal import/trim/timing/save/reopen/export, opening the trimmer
+  against the actual completed export, and returning to single-file saving.
+  Logs: `output/trimmer-native-ui.log` and `output/trimmer-native-editor.log`.
+  The container has no audio device: video playback/controls ran, and encoded
+  audio was checked digitally, but physical speaker output was not verified.
+- Tests caught and fixed an FFmpeg global timestamp shift that skipped the first
+  stream-copy cut, and a rename-dialog controller disposed during its closing
+  animation. A rotation fixture was corrected to use FFmpeg's input display
+  rotation option; no missing orientation check was waived.
+- Final Android debug build: **passed** (27.7 seconds). Release builds: **all three ABIs
+  passed** (68.8 seconds). The new Kotlin document-tree batch-saving bridge
+  compiled. Debug and ARMv7/ARM64/x86-64 release APKs are in `output/android/`;
+  release checksums refreshed. `apksigner verify` and `zipalign -c -P 16 4` passed
+  for all four packages. Logs: `output/trimmer-android-debug.log` and
+  `output/trimmer-android-release.log`.
+- Final Linux release build passed into `output/linux-trimmer/`, with no unresolved
+  host shared libraries. The desktop launcher was updated to this complete bundle
+  and the application was launched successfully; native players and EGL rendering
+  initialized. The optional CUDA probe warning was nonfatal.
+- `adb devices -l`: **no attached devices**. Android FFmpegKit execution,
+  playback, actual SAF dialogs and provider cancellation remain unverified on a
+  device. Earlier emulator attempts crashed before boot (see the acceptance
+  record below); they are not reported as application test results. APKs continue
+  to use development signing.
+- Shell syntax, documentation links and `git diff --check` passed. CI includes
+  the new native trimmer workflow. Existing Docker dependencies were sufficient;
+  no new runtime package or model download was added.
+
+Changed implementation files: `lib/features/video_trimmer/segment_plan.dart`,
+`segmentation_service.dart`, `video_trimmer_page.dart`, editor navigation,
+shared export naming/destination services and Android `MainActivity.kt`.
+Tests, the native check script, CI, README and this documentation accompany them.
+
+Cut limits: durations follow actual video frames, with small AAC packet-boundary
+offsets possible. HDR re-encoding is rejected pending explicit tone mapping.
+Unverifiable/VFR boundaries fail with a remedy instead of being fabricated.
+Temporary and destination storage are both needed; abrupt process termination
+and document-provider deletion failures can require manual cleanup.
+
 ## Request acceptance recheck (2026-10-18)
 
 The owner's full enhancement request was re-read and mapped to all eight feature

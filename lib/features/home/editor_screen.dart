@@ -21,6 +21,7 @@ import '../export/export_service.dart';
 import '../preview/ayah_painter.dart';
 import '../synchronization/alignment_engine.dart';
 import '../synchronization/ayah_timeline.dart';
+import '../video_trimmer/video_trimmer_page.dart';
 
 class EditorScreen extends ConsumerStatefulWidget {
   const EditorScreen({super.key});
@@ -621,6 +622,19 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     }
   }
 
+  Future<void> openTrimmer({File? completedReel}) async {
+    await pause();
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => VideoTrimmerPage(
+          completedReel: completedReel,
+          projectName: completedReel == null ? null : project?.title,
+        ),
+      ),
+    );
+  }
+
   bool setTrim(double start, double end) {
     final value = project!.copyWith(
       trimStart: start,
@@ -711,6 +725,13 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                         onPressed: locked ? null : () => action(library),
                         icon: const Icon(Icons.folder_open),
                         label: const Text('Projects'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: locked
+                            ? null
+                            : () => action(() => openTrimmer()),
+                        icon: const Icon(Icons.content_cut),
+                        label: const Text('Video Trimmer'),
                       ),
                       OutlinedButton.icon(
                         onPressed: current == null || locked
@@ -1722,6 +1743,14 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   }),
             icon: const Icon(Icons.download),
             label: const Text('Save exported video…'),
+          ),
+        if (lastExport != null)
+          TextButton.icon(
+            onPressed: locked
+                ? null
+                : () => action(() => openTrimmer(completedReel: lastExport)),
+            icon: const Icon(Icons.content_cut),
+            label: const Text('Split completed reel…'),
           ),
         const SizedBox(height: 12),
         const Text(
