@@ -27,3 +27,9 @@ states and dwell.
 
 This small test is a pipeline smoke/regression test, not a multi-reciter benchmark.
 No median/p95 boundary error or Quran-wide accuracy claim is supported by it.
+
+The reviewer procedure for turning `reference-template.json` into a filled
+independent reference, and the ≥24-clip / 3-reciter evaluation procedure, are
+documented in [`docs/ALIGNMENT_ANNOTATION.md`](../../../docs/ALIGNMENT_ANNOTATION.md).
+Keep this template unfilled; copy it to a working file (for example
+`output/quality/reference.json`) before annotating.

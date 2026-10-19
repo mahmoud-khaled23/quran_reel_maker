@@ -10,24 +10,31 @@ measured, never inferred from model scores; thresholds are documented
 engineering heuristics, not calibrated accuracy.
 
 Subcommands:
+  validate-reference structure/provenance/canonical-text check for a reference
+                  file before annotating or scoring (no model needed)
   align           run the Linux worker once and write a worker result JSON
   predictions     run the worker for every reference clip and write the
                   predictions.json consumed by scripts/alignment/evaluate.py
   score           score an existing worker result against the audio acoustics
   synthetic-pause insert known silence, realign, report violations and drift
 
-Requires FFmpeg on PATH. `synthetic-pause` and `predictions` need the worker
-environment (./scripts/setup-alignment.sh). Pure functions below stay stdlib
-only so unit tests run without model, network or numpy.
+Reviewer instructions and the ≥24-clip/3-reciter evaluation procedure live in
+docs/ALIGNMENT_ANNOTATION.md. Requires FFmpeg on PATH. `synthetic-pause` and
+`predictions` need the worker environment (./scripts/setup-alignment.sh).
+Pure functions below stay stdlib only so unit tests run without model, network
+or numpy.
 """
 import argparse
 import array
+import hashlib
 import json
 import math
 from pathlib import Path
 import statistics
 import subprocess
 import sys
+
+from evaluate import validate_reference
 
 ROOT = Path(__file__).resolve().parents[2]
 SAMPLE_RATE = 16000
@@ -49,6 +56,10 @@ WORD_EDGE_MARGIN_SECONDS = 0.05  # silence must sit this far inside a word to co
 REJECTION_CODES = {
     "text_mismatch", "low_quality", "alignment_path", "selection", "silent_audio",
 }
+# Copied from docs/ANDROID_ALIGNMENT.md "Evaluation gates" (Independent corpus
+# row). Lowering these here would relax the documented gates; update that
+# document and this constant together or not at all.
+REFERENCE_GATE_TARGETS = {"clips": 24, "reciters": 3, "words": 500}
 
 
 def percentile(values, proportion):
@@ -298,7 +309,11 @@ def derive_selection(clip, verses=None):
     different excerpt than the one a reviewer will annotate.
     """
     if clip.get("selection"):
-        return dict(clip["selection"])
+        selection = dict(clip["selection"])
+        for field in ("trimStart", "trimEnd"):
+            if field not in selection:
+                selection[field] = clip.get(field)
+        return selection
     words = clip.get("words") or []
     if not words:
         raise ValueError(
@@ -361,6 +376,142 @@ def load_verses():
             surah, ayah, text = line.split("|", 2)
             verses[int(surah), int(ayah)] = text
     return verses
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def check_selection(selection, clip_id, verses=None):
+    """Validate a selection object accepted by request_for()/the worker."""
+    for field in ("trimStart", "trimEnd"):
+        if selection.get(field) is None:
+            raise ValueError("Clip %s selection needs %s." % (clip_id, field))
+    surah, first, last = (selection.get("surah"), selection.get("firstAyah"),
+                          selection.get("lastAyah"))
+    for name, value in (("surah", surah), ("firstAyah", first),
+                        ("lastAyah", last)):
+        if type(value) is not int:
+            raise ValueError(
+                "Clip %s selection %s must be an integer." % (clip_id, name))
+    if not 1 <= surah <= 114 or not 1 <= first <= last <= 286:
+        raise ValueError(
+            "Clip %s selection needs one surah and an ordered ayah range."
+            % clip_id)
+    first_word, last_word = selection.get("firstWord", 0), selection.get("lastWord")
+    if type(first_word) is not int or first_word < 0:
+        raise ValueError(
+            "Clip %s selection firstWord must be a nonnegative integer."
+            % clip_id)
+    if last_word is not None and (type(last_word) is not int or last_word < 0):
+        raise ValueError(
+            "Clip %s selection lastWord must be a nonnegative integer."
+            % clip_id)
+    if verses is None:
+        return
+    for ayah in range(first, last + 1):
+        try:
+            length = len(verses[(surah, ayah)].split())
+        except KeyError:
+            raise ValueError(
+                "Clip %s selects surah %d ayah %d, which the verified text "
+                "does not contain." % (clip_id, surah, ayah))
+        if ayah == first and first_word >= length:
+            raise ValueError("Clip %s selection firstWord is out of range." % clip_id)
+        if ayah == last and last_word is not None and last_word >= length:
+            raise ValueError("Clip %s selection lastWord is out of range." % clip_id)
+
+
+def reference_report(reference, *, check_hashes=False, verses=None):
+    """Preflight report for a reference file; never scores accuracy.
+
+    Structural validation uses the same rules as scripts/alignment/evaluate.py
+    (imported, not duplicated) with annotations optional, so reviewers can run
+    this before and after annotating. Corpus counts are reported against the
+    documented gate minimums; this tool never claims the accuracy gates pass.
+    """
+    try:
+        validate_reference(reference, require_annotations=False)
+    except ValueError as error:
+        return {"valid": False, "errors": [str(error)], "warnings": [],
+                "clips": [], "corpus": None}
+    verses = load_verses() if verses is None else verses
+    errors, warnings, clips = [], [], []
+    for clip in reference["clips"]:
+        entry = {"id": clip["id"], "reciter": clip["reciter"],
+                 "expected": clip.get("expected", "align"), "errors": [],
+                 "warnings": []}
+        try:
+            selection = derive_selection(clip, verses)
+            check_selection(selection, clip["id"], verses)
+            entry["selection"] = selection
+        except ValueError as error:
+            entry["errors"].append(str(error))
+        audio = Path(clip["audio"])
+        audio = audio if audio.is_absolute() else ROOT / audio
+        entry["audio"] = str(audio)
+        if not audio.is_file():
+            entry["errors"].append("audio file is missing: %s" % audio)
+        elif check_hashes:
+            actual = sha256_file(audio)
+            if actual != clip["audioSha256"].lower():
+                entry["errors"].append(
+                    "audioSha256 does not match %s (found %s, want %s)"
+                    % (audio, actual, clip["audioSha256"]))
+        words = clip.get("words") or []
+        annotated = sum(1 for word in words
+                        if all(word.get(field) is not None
+                               for field in ("start", "end", "uncertaintyMs")))
+        entry.update(words=len(words), annotatedWords=annotated)
+        if words and not annotated:
+            entry["warnings"].append(
+                "no word timings annotated yet (expected before review)")
+        elif 0 < annotated < len(words):
+            entry["warnings"].append(
+                "%d of %d words annotated" % (annotated, len(words)))
+        errors.extend(entry["errors"])
+        clips.append(entry)
+    status = reference.get("annotationStatus")
+    if status == "independently-reviewed":
+        try:
+            validate_reference(reference, require_annotations=True)
+        except ValueError as error:
+            errors.append(
+                "annotationStatus claims independent review but the file is "
+                "not scoreable: %s" % error)
+    elif status != "pending-independent-review":
+        warnings.append("unrecognized annotationStatus %r" % status)
+    expected_words = sum(entry["words"] for entry in clips
+                         if entry["expected"] == "align")
+    annotated_words = sum(entry["annotatedWords"] for entry in clips
+                          if entry["expected"] == "align")
+    reciters = sorted({clip["reciter"] for clip in reference["clips"]})
+    negatives = sum(1 for entry in clips if entry["expected"] == "reject")
+    corpus = {
+        "clips": {"value": len(clips),
+                  "gateTarget": REFERENCE_GATE_TARGETS["clips"],
+                  "met": len(clips) >= REFERENCE_GATE_TARGETS["clips"]},
+        "reciters": {"value": len(reciters),
+                     "gateTarget": REFERENCE_GATE_TARGETS["reciters"],
+                     "met": len(reciters) >= REFERENCE_GATE_TARGETS["reciters"]},
+        "expectedWords": {"value": expected_words,
+                          "gateTarget": REFERENCE_GATE_TARGETS["words"],
+                          "met": expected_words >= REFERENCE_GATE_TARGETS["words"]},
+        "negativeClips": {
+            "value": negatives,
+            "note": "the documented gate requires deliberate wrong-text/"
+                    "extra-repetition negatives but sets no numeric minimum"},
+        "annotatedWords": annotated_words,
+        "annotationStatus": status,
+        "scoreable": (not errors and status == "independently-reviewed"
+                      and annotated_words == expected_words),
+    }
+    return {"valid": not errors, "errors": errors, "warnings": warnings,
+            "clips": clips, "corpus": corpus}
 
 
 def request_for(audio_path, selection):
@@ -446,10 +597,28 @@ def command_align(args):
     print("Wrote %s (%d cues)" % (args.out, len(result["cues"])))
 
 
+def command_validate_reference(args):
+    reference = json.loads(Path(args.reference).read_text())
+    report = reference_report(reference, check_hashes=args.check_audio)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if not report["valid"]:
+        raise SystemExit("Reference %s is not valid: %d error(s) above."
+                         % (args.reference, len(report["errors"])))
+    corpus = report["corpus"]
+    print("OK: %d clips, %d reciter(s), %d selected words, %d annotated, "
+          "%d negative clip(s); scoreable=%s."
+          % (corpus["clips"]["value"], corpus["reciters"]["value"],
+             corpus["expectedWords"]["value"], corpus["annotatedWords"],
+             corpus["negativeClips"]["value"], corpus["scoreable"]),
+          file=sys.stderr)
+
+
 def command_predictions(args):
     reference = json.loads(Path(args.reference).read_text())
-    if reference.get("schema") != 1:
-        raise SystemExit("Expected a schema 1 reference file.")
+    try:
+        validate_reference(reference, require_annotations=False)
+    except ValueError as error:
+        raise SystemExit("Reference file is not usable: %s" % error)
     verses = load_verses()
     clips = []
     for clip in reference["clips"]:
@@ -458,6 +627,12 @@ def command_predictions(args):
             else Path(clip["audio"])
         if not audio.is_file():
             raise SystemExit("Missing audio for clip %s: %s" % (clip["id"], audio))
+        actual = sha256_file(audio)
+        if actual != clip["audioSha256"].lower():
+            raise SystemExit(
+                "Audio for clip %s does not match its audioSha256 (found %s, "
+                "want %s); predictions must run on the annotated file."
+                % (clip["id"], actual, clip["audioSha256"]))
         words = []
         try:
             result = run_alignment(request_for(audio, selection))
@@ -611,6 +786,14 @@ def main(argv=None):
     common(align_p)
     align_p.add_argument("--out", type=Path, required=True)
     align_p.set_defaults(func=command_align)
+
+    validate_p = sub.add_parser(
+        "validate-reference",
+        help="check reference structure/provenance before annotating or scoring")
+    validate_p.add_argument("--reference", type=Path, required=True)
+    validate_p.add_argument("--check-audio", action="store_true",
+                            help="also verify each audio file's SHA-256")
+    validate_p.set_defaults(func=command_validate_reference)
 
     predictions_p = sub.add_parser(
         "predictions", help="worker predictions for a reference file")

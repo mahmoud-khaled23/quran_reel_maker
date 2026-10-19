@@ -154,6 +154,14 @@ as failures. Accuracy is computed only on matched boundaries and must always be
 read with coverage. The included evaluator tests use mathematical values, not
 invented Quran timings.
 
+Field-level reviewer instructions (units, canonical word indices, blind
+annotation/adjudication protocol) and the reproducible ≥24-clip / 3-reciter
+procedure are in [ALIGNMENT_ANNOTATION.md](ALIGNMENT_ANNOTATION.md). The
+`quality_probe.py validate-reference` subcommand preflights a reference without
+a model: structural rules shared with the evaluator, canonical selection against
+the verified text, audio existence/SHA-256 (`--check-audio`), annotation
+completeness and corpus-gate counts. It never scores accuracy.
+
 `scripts/alignment/quality_probe.py` adds objective, human-free evidence that
 **does not satisfy the gates above**: `score` checks predicted boundaries
 against pauses detected in the audio (floor-based VAD heuristics with explicit
@@ -178,6 +186,9 @@ mkdir -p output/alignment-native-docker
 docker compose --profile alignment build alignment-native-checks
 docker compose --profile alignment run --rm alignment-native-checks
 python3 -m unittest discover -s scripts/alignment -p 'test_*.py' -v
+# Preflight a reference before/after annotation (no model needed):
+python3 scripts/alignment/quality_probe.py validate-reference \
+  --reference output/quality/reference.json --check-audio
 python3 scripts/alignment/evaluate.py independent-reference.json predictions.json
 # Objective probes (no human labels; never a substitute for the gates):
 .alignment-venv/bin/python scripts/alignment/quality_probe.py predictions \

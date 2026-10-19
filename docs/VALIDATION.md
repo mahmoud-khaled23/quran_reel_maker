@@ -1,5 +1,73 @@
 # Validation record
 
+## Reference annotation pipeline hardening (2026-10-19)
+
+Scope: make the independent-accuracy pipeline reviewer-ready without fabricating
+labels or relaxing any gate. No Flutter/Android code changed.
+
+What changed:
+
+- `scripts/alignment/evaluate.py` now validates the whole reference and
+  predictions structure up front with clean `ValueError`s and a clean CLI
+  refusal (`Cannot score: …`) instead of tracebacks: schema/timeline, a
+  non-empty `reviewers` list of non-blank names, unique non-blank clip IDs,
+  provenance strings, finite non-inverted trims, `expected ∈ {align, reject}`,
+  integer `surah/ayah/index` (booleans rejected), all-or-nothing timing triples,
+  finite non-negative uncertainty, monotonic/in-trim boundaries, unique
+  canonical words, and prediction statuses/identities/timings. Scoring math and
+  report fields are unchanged; the per-clip `starts`/`ends` summaries were
+  already present and remain.
+- `scripts/alignment/quality_probe.py` gained `validate-reference`
+  (`reference_report()`): it reuses the evaluator's structural validation with
+  annotations optional, derives each clip's canonical selection against the
+  bundled Tanzil text, validates reject-clip `selection` objects, checks audio
+  existence (and SHA-256 with `--check-audio`), flags partially/incompletely
+  annotated files, and reports corpus counts against the documented 24/3/500
+  gate minimums. It never scores accuracy. `predictions` now refuses malformed
+  references, verifies each audio file's SHA-256 before inference, and explicit
+  reject-clip selections inherit `trimStart`/`trimEnd` from the clip.
+- `docs/ALIGNMENT_ANNOTATION.md` documents the field-by-field schema, units,
+  canonical word-index rules, blind annotation/adjudication protocol, negative
+  clips, corpus plan and the exact reproducible commands; the shipped template
+  stays unfilled (asserted by a test).
+
+Verified locally on this branch:
+
+- Adversarial matrix against the pre-hardening evaluator: 15 malformed inputs
+  crashed with `KeyError`/`TypeError` (e.g. missing `words`/`trimEnd`/
+  `uncertaintyMs`, string `trimStart`, non-dict clips, missing
+  `predictions["clips"]`) and 3 malformed inputs were silently accepted (garbage
+  `expected`, `reviewers: [""]`, boolean/string word identity fields). After the
+  change every such input raises a clean `ValueError`; valid edge cases
+  (`start == trimStart`, `end == trimEnd`, `uncertaintyMs == 0`) still score;
+  missing predictions still count as failed clips and accepted negatives still
+  count as false accepts.
+- Refusal checks re-run: the unfilled template is refused with
+  *"Accuracy scoring requires independent human-reviewed annotations; …"*;
+  predictions used as a reference are refused (*"Expected schema 1
+  source-timeline references."*); a reference used as predictions is refused
+  (unknown status); CLI exits 1 in both cases.
+- Preflight refusals re-run on template copies (all clean errors, exit 1, no
+  traceback): missing `audio` path, half-annotated word timings,
+  `annotationStatus: independently-reviewed` with unannotated words, a reject
+  clip without `selection`, a missing audio file, and a wrong `audioSha256`
+  (`predictions` stops before inference and writes no output). A reject clip
+  with an explicit `selection` preflights as valid and inherits the clip trims;
+  the template stays `scoreable: false`.
+- `python3 -m unittest discover -s scripts/alignment -p 'test_*.py' -v` →
+  **40 passed** (12 evaluator tests incl. the malformed-input matrix and the
+  shipped-template invariant; 28 probe/preflight tests). No model, network,
+  ffmpeg or numpy needed.
+- Real fixture end-to-end: `validate-reference --check-audio` on the template →
+  `valid: true`, 1 clip / 1 reciter / 6 selected words / 0 annotated / 0
+  negatives, `scoreable: false`, gate counts unmet. `predictions` on the same
+  file (Linux worker + pinned model, SHA-256 verified) wrote 1 clip of
+  evaluator-ready predictions; scoring it was still refused. An unfilled
+  six-word fixture remains a smoke test, not accuracy evidence.
+
+No accuracy gate was evaluated or relaxed: human annotations are still absent,
+so P1 remains open.
+
 ## Objective alignment quality probes (2026-10-19)
 
 Tooling: `scripts/alignment/quality_probe.py` with 16 new stdlib-only unit

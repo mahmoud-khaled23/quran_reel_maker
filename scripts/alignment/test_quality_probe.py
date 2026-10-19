@@ -11,6 +11,7 @@ from quality_probe import (
     inter_word_gaps,
     map_generated_to_source,
     pause_coverage_of,
+    reference_report,
     report_drift,
     request_for,
     violations_inside,
@@ -192,6 +193,129 @@ class RequestAndResultTest(unittest.TestCase):
         self.assertEqual([(w["ayah"], w["index"]) for w in words],
                          [(2, 0), (2, 1), (3, 0)])
         self.assertEqual(words[0]["surah"], 1)
+
+
+class ReferenceReportTest(unittest.TestCase):
+    def template(self):
+        import json
+        from pathlib import Path
+        path = (Path(__file__).resolve().parents[2]
+                / "test/fixtures/alignment/reference-template.json")
+        return json.loads(path.read_text())
+
+    def fill(self, reference, count=6):
+        start = 14.5
+        for word in reference["clips"][0]["words"][:count]:
+            word.update(start=start, end=start + 1.0, uncertaintyMs=20)
+            start += 1.5
+        return reference
+
+    def test_shipped_template_preflights_clean_but_unannotated(self):
+        report = reference_report(self.template(), check_hashes=True)
+        self.assertTrue(report["valid"], report["errors"])
+        self.assertEqual(report["errors"], [])
+        self.assertEqual(report["corpus"]["clips"]["value"], 1)
+        self.assertEqual(report["corpus"]["reciters"]["value"], 1)
+        self.assertEqual(report["corpus"]["expectedWords"]["value"], 6)
+        self.assertEqual(report["corpus"]["annotatedWords"], 0)
+        self.assertEqual(report["corpus"]["negativeClips"]["value"], 0)
+        self.assertFalse(report["corpus"]["scoreable"])
+        self.assertFalse(report["corpus"]["clips"]["met"])
+        self.assertFalse(report["corpus"]["expectedWords"]["met"])
+        self.assertIn("no word timings", report["clips"][0]["warnings"][0])
+
+    def test_fully_annotated_reference_is_scoreable(self):
+        reference = self.fill(self.template())
+        reference.update(annotationStatus="independently-reviewed",
+                         reviewers=["synthetic-test"])
+        report = reference_report(reference, check_hashes=True)
+        self.assertTrue(report["valid"], report["errors"])
+        self.assertEqual(report["corpus"]["annotatedWords"], 6)
+        self.assertTrue(report["corpus"]["scoreable"])
+
+    def test_partial_annotation_reports_progress_without_errors(self):
+        report = reference_report(self.fill(self.template(), count=3))
+        self.assertTrue(report["valid"], report["errors"])
+        self.assertEqual(report["corpus"]["annotatedWords"], 3)
+        self.assertIn("3 of 6 words annotated", report["clips"][0]["warnings"][0])
+
+    def test_half_filled_word_is_an_error(self):
+        reference = self.template()
+        reference["clips"][0]["words"][0].update(start=14.5, end=None)
+        report = reference_report(reference)
+        self.assertFalse(report["valid"])
+        self.assertIn("mixes filled and missing", report["errors"][0])
+
+    def test_missing_audio_file_is_an_error(self):
+        reference = self.template()
+        reference["clips"][0]["audio"] = "test/fixtures/alignment/missing.ogg"
+        report = reference_report(reference)
+        self.assertFalse(report["valid"])
+        self.assertTrue(any("audio file is missing" in error
+                            for error in report["errors"]))
+
+    def test_hash_mismatch_only_checked_on_request(self):
+        reference = self.template()
+        reference["clips"][0]["audioSha256"] = "0" * 64
+        self.assertTrue(reference_report(reference)["valid"])
+        report = reference_report(reference, check_hashes=True)
+        self.assertFalse(report["valid"])
+        self.assertTrue(any("audioSha256 does not match" in error
+                            for error in report["errors"]))
+
+    def test_negative_clip_needs_an_explicit_selection(self):
+        reference = self.template()
+        clip = reference["clips"][0]
+        clip.update(expected="reject")
+        clip.pop("words")
+        report = reference_report(reference)
+        self.assertFalse(report["valid"])
+        self.assertTrue(any("selection" in error and "reject" in error
+                            for error in report["errors"]))
+
+    def test_negative_selection_inherits_the_clip_trim(self):
+        reference = self.template()
+        clip = reference["clips"][0]
+        clip.update(expected="reject", selection={
+            "surah": 1, "firstAyah": 1, "lastAyah": 1})
+        clip.pop("words")
+        report = reference_report(reference)
+        self.assertTrue(report["valid"], report["errors"])
+        self.assertEqual(report["corpus"]["negativeClips"]["value"], 1)
+        self.assertEqual(report["clips"][0]["selection"]["trimStart"], 14)
+        self.assertEqual(report["clips"][0]["selection"]["trimEnd"], 27)
+
+    def test_noncontiguous_words_are_flagged(self):
+        reference = self.template()
+        reference["clips"][0]["words"].pop(1)
+        report = reference_report(reference)
+        self.assertFalse(report["valid"])
+        self.assertTrue(any("not contiguous" in error
+                            for error in report["errors"]))
+
+    def test_reviewed_status_with_incomplete_annotations_is_an_error(self):
+        reference = self.template()
+        reference.update(annotationStatus="independently-reviewed",
+                         reviewers=["synthetic-test"])
+        report = reference_report(reference)
+        self.assertFalse(report["valid"])
+        self.assertTrue(any("claims independent review" in error
+                            for error in report["errors"]))
+
+    def test_unknown_annotation_status_warns(self):
+        reference = self.template()
+        reference.update(annotationStatus="reviewing")
+        report = reference_report(reference)
+        self.assertTrue(report["valid"], report["errors"])
+        self.assertIn("unrecognized annotationStatus",
+                      report["warnings"][0])
+
+    def test_explicit_selection_fills_missing_trim_from_clip(self):
+        clip = {"id": "r", "trimStart": 2, "trimEnd": 9,
+                "selection": {"surah": 1, "firstAyah": 1, "lastAyah": 1}}
+        selection = derive_selection(clip)
+        self.assertEqual(selection["trimStart"], 2)
+        self.assertEqual(selection["trimEnd"], 9)
 
 
 if __name__ == "__main__":

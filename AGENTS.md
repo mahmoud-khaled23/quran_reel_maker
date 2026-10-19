@@ -1,10 +1,10 @@
 # AGENTS.md — Quran Reel Maker
 
 Verified project memory for coding agents. Last audited **2026-10-19** on branch
-`working-side` at commit `62ebef7` ("Finish Android auto alignment"). Claims here
-were checked against the repository, local runs, and CI — see
-`docs/PROJECT_STATUS.md` for exact commands and results. Do not update the status
-tables unless you personally ran the check.
+`working-side` at commit `62ebef7` ("Finish Android auto alignment"), plus the
+later P1 probe/hardening commits described below and in
+`docs/PROJECT_STATUS.md`. See `docs/PROJECT_STATUS.md` for exact commands and
+results. Do not update the status tables unless you personally ran the check.
 
 ## What this is
 
@@ -39,12 +39,17 @@ MediaKit/mpv playback, optional on-device forced alignment.
   `requirements.lock`, `tests/`. Launchers: `scripts/setup-alignment.sh`,
   `scripts/alignment-worker.sh`.
 - `scripts/alignment/` — offline evaluation tooling (stdlib-only except model
-  runs): `evaluate.py` (accuracy scoring; refuses non-human-reviewed
-  references), `quality_probe.py` (`predictions`/`score`/`synthetic-pause`
-  objective probes — known-digital-silence violations + transformation
-  invariance, acoustic pause plausibility), `benchmark.py` (native/worker
-  parity + resources), `test_evaluate.py`/`test_quality_probe.py` (22 tests,
-  no model/network/ffmpeg needed).
+  runs): `evaluate.py` (accuracy scoring; hardened structural validation; refuses
+  non-human-reviewed references, malformed files and swapped prediction/
+  reference inputs), `quality_probe.py` (`validate-reference` preflight for
+  reference structure/canonical text/audio hashes + corpus-gate counts;
+  `predictions`/`score`/`synthetic-pause` objective probes —
+  known-digital-silence violations + transformation invariance, acoustic pause
+  plausibility), `benchmark.py` (native/worker parity + resources),
+  `test_evaluate.py`/`test_quality_probe.py` (40 tests, no
+  model/network/ffmpeg needed). Reviewer guide + 24-clip/3-reciter procedure:
+  `docs/ALIGNMENT_ANNOTATION.md`. The shipped template must stay unfilled
+  (enforced by a test); annotate a copy under ignored `output/quality/`.
 - `android/app/src/main/java/.../alignment/QuranAligner.java` — Java CTC core;
   `kotlin/.../AlignmentBridge.kt` + `MainActivity.kt` — channel, lifecycle,
   rotation metadata fallback. Gradle adds `com.microsoft.onnxruntime:onnxruntime-android:1.23.2`.
@@ -75,7 +80,7 @@ flutter pub get --enforce-lockfile
 dart format --output=none --set-exit-if-changed lib test integration_test
 flutter analyze
 flutter test                       # 60 tests incl. real FFmpeg export tests (needs ffmpeg on PATH)
-python3 -m unittest discover -s scripts/alignment -p 'test_*.py' -v   # evaluator + quality-probe invariants (22)
+python3 -m unittest discover -s scripts/alignment -p 'test_*.py' -v   # evaluator + probe/preflight invariants (40)
 QRM_TEST_MODEL=1 .alignment-venv/bin/python -m unittest discover -s alignment_worker/tests -v  # 12, offline
 ```
 
@@ -154,6 +159,12 @@ native flows and release artifact). Last run for this branch/HEAD: **success**.
    Objective probes exist (`scripts/alignment/quality_probe.py`, measured
    2026-10-19 on the CC0 fixture: 0 ms speech inside 2 s inserted silence,
    mapped drift median 0.0 / max 20 ms) but are evidence, not gate compliance.
+   The pipeline is reviewer-ready: `validate-reference` preflights a reference
+   (structure, canonical Tanzil selection, audio hashes, corpus counts, no
+   model), `predictions` is SHA-256-bound to the annotated audio, the evaluator
+   refuses unreviewed/incomplete/malformed inputs, and
+   `docs/ALIGNMENT_ANNOTATION.md` gives the field-level guide + 24-clip/3-reciter
+   plan. Human annotation is the remaining blocker.
 2. **ARM64 incremental APK size gate failed**: +19.78 MB vs ≤15 MB target
    (full ONNX Runtime ARM64 libs ≈19.4 MB). Documented, not silently accepted.
 3. Release-mode cancellation timing, unplugged battery energy, real SAF dialogs,
