@@ -22,6 +22,16 @@ class ProbeEngine extends MediaEngine {
   }) async => jsonEncode(data);
 }
 
+class FallbackProbeEngine extends ProbeEngine {
+  FallbackProbeEngine(super.data);
+  int fallbackCalls = 0;
+  @override
+  Future<double?> fallbackVideoRotation(String file) async {
+    fallbackCalls++;
+    return 90;
+  }
+}
+
 void main() {
   test('HH:MM:SS:FFF parses exact milliseconds including hour rollover', () {
     for (final pair in {
@@ -186,6 +196,26 @@ void main() {
       expect(info.height, 960);
     },
   );
+  test('missing display matrix uses platform rotation without overriding explicit metadata', () async {
+    final video = <String, Object>{
+      'codec_type': 'video',
+      'width': 640,
+      'height': 480,
+    };
+    final engine = FallbackProbeEngine({
+      'streams': [video],
+      'format': {'duration': '2'},
+    });
+    var info = await engine.inspect('portrait.mp4');
+    expect([info.width, info.height], [480, 640]);
+    expect(engine.fallbackCalls, 1);
+    video['side_data_list'] = [
+      {'rotation': 0},
+    ];
+    info = await engine.inspect('upright.mp4');
+    expect([info.width, info.height], [640, 480]);
+    expect(engine.fallbackCalls, 1);
+  });
   test('readable Unicode filenames sanitize unsafe characters and reserve atomically', () async {
     expect(exportStem('Surah Al Rahman'), 'Surah Al Rahman');
     expect(exportStem('سورة الرحمن'), 'سورة الرحمن');

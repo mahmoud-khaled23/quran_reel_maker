@@ -6,6 +6,11 @@ is commit `02b4934`. This document distinguishes implemented behavior from the
 platforms and cases actually exercised; it is not a claim of universal device or
 alignment accuracy.
 
+Updated **2026-10-19** for the native Android alignment follow-up. Physical A52s
+debug/offline and release/offline alignment now run, alongside real media/export/
+segmentation regressions. See [current measured results](VALIDATION.md) and
+[candidate research and remaining accuracy gates](ANDROID_ALIGNMENT.md).
+
 ## Architecture and implementation phases
 
 The initial audit inspected the existing Flutter/Riverpod editor, MediaKit
@@ -59,19 +64,20 @@ where only shared tests, Linux execution or APK inspection were available.
 | 9 | Reposition and recolor text | Drag, palette, background switch, shared painter and saved settings exercised by the follow-up widget test; colored/positioned output exercised by FFmpeg test. |
 | 10 | Preview/export settings agree | Same painter and overlay clock; raster/MP4 checks, project persistence, and Fit centering regression. Preview players can have small clock drift; inspect the final MP4. |
 | 11 | Offline Linux alignment | Actual pinned model tests passed with container networking disabled; the app also ran its real local worker in a native workflow. Docker is optional at runtime. |
-| 12 | Android manual timing | Shared controls, manual fallback and mobile layouts tested; Android debug/release APKs built. Full Android runtime acceptance remains pending a working device/emulator. |
+| 12 | Android manual timing | Physical A52s editor created manual timings, saved/reopened and exported; shared controls and mobile layouts tested. Optional native automatic drafts preserve this fallback. |
 | 13 | Android/Linux icons | Resources, manifests, native icon paths and desktop installer validated; builds passed. Android launcher visual check remains pending. |
 | 14 | Existing projects/workflows | Schema-1 defaults and round-trip tests; manual workflow, mixed-surah reopening, copied-media independence and automatic alignment workflow passed. |
 | 15 | Checks/builds or documented failures | Successful commands/artifacts are recorded in [VALIDATION.md](VALIDATION.md); emulator attempts and remaining limitations are recorded below. |
 
 ## Platform and model limits
 
-- Android runtime verification is not complete. No physical device is attached.
-  Existing emulator configurations were discovered during this audit and startup
-  was attempted; see the dated results in [VALIDATION.md](VALIDATION.md). A build
-  or an emulator startup failure is not counted as an application test pass.
+- Physical A52s debug/release offline inference and real FFmpegKit regressions
+  now have measured results in [VALIDATION.md](VALIDATION.md). Earlier failed
+  emulator attempts remain historical records, not application passes. Actual
+  document-provider dialogs and other Android hardware remain unverified.
 - Android retains manual ayah/word timing and never executes the Python launcher.
-  Automatic alignment is currently Linux-only, as permitted by the request.
+  Optional native ONNX alignment is provisional until independent multi-reciter
+  boundary accuracy and all resource gates are met.
 - Automatic alignment uses the already verified Quran dataset and installed
   pinned model. Canonical text and its bytes are unchanged. Repetitions are not
   independently segmented; warnings/rejection and manual correction remain
@@ -105,16 +111,16 @@ To install the Linux launcher, keep the whole release bundle at a permanent path
 and run `python3 scripts/install-linux-desktop.py /absolute/path/to/bundle`.
 The installer was first validated in an isolated XDG directory. This acceptance
 recheck also installed the owner's actual user launcher and four hicolor icons,
-pointing to `output/linux-acceptance/`; the installed desktop entry passed
+most recently pointing to `output/linux-alignment/`; the installed desktop entry passed
 `desktop-file-validate`. Keep that bundle in place or rerun the installer after
 moving it.
 
 On an available Android device/emulator, run:
 
 ```bash
-flutter test integration_test/media_export_test.dart -d DEVICE_ID
-flutter test integration_test/enhanced_media_export_test.dart -d DEVICE_ID
-flutter test integration_test/editor_flow_test.dart -d DEVICE_ID
+flutter test integration_test/media_export_test.dart -d DEVICE_ID --no-uninstall --dart-define=QRM_ALIGNMENT_BENCHMARK=true
+flutter test integration_test/enhanced_media_export_test.dart -d DEVICE_ID --no-uninstall --dart-define=QRM_ALIGNMENT_BENCHMARK=true
+flutter test integration_test/editor_flow_test.dart -d DEVICE_ID --no-uninstall --dart-define=QRM_ALIGNMENT_BENCHMARK=true
 ```
 
 Then inspect the launcher, real file chooser/Save exported video flow and audible

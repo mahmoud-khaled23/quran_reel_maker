@@ -2,8 +2,9 @@
 
 Linux supports **local automatic draft timings** for a known surah/ayah range.
 This is forced alignment against the bundled, hash-verified Tanzil Uthmani 1.1
-text, not automatic surah identification. Android retains the manual workflow;
-a Python executable is not an Android inference runtime.
+text, not automatic surah identification. Android now has a separate native
+CPU CTC candidate; see [Android evaluation/setup](ANDROID_ALIGNMENT.md).
+The Python worker remains Linux-only and manual timing is preserved on both.
 
 ## Install once, then work offline
 
@@ -17,8 +18,9 @@ This explicitly downloads hash-locked dependencies into `.alignment-venv` and
 241 MB of weights plus small configuration/tokenizer files into
 `.alignment-models/quran-ctc-q4-v1`. Allow additional disk space for Python wheels
 and the environment. Every model file's size/SHA-256 is verified; downloads use
-atomic replacement and already valid files are reused. The app itself never
-downloads weights or calls a remote inference service. Native inference needs
+atomic replacement and already valid files are reused. The Linux app does not
+download weights; Android has an explicit Download / repair action. Neither
+platform calls a remote inference service. Native inference needs
 neither Docker nor a GPU, PyTorch or Transformers.
 
 In the editor, **Choose local worker** → select `scripts/alignment-worker.sh`.
@@ -191,6 +193,7 @@ failure/cancellation, persisted metadata and export rebasing.
 - The licensed real-audio fixture covers one Al-Fatiha passage. There is no
   multi-reciter benchmark, independent onset/offset error measurement, calibrated
   confidence or production accuracy guarantee. Review every final MP4.
-- Android on-device automatic alignment is not implemented or tested.
+- Android now uses a separate Java/ONNX Runtime integration; its accuracy/resource
+  acceptance and device evidence are tracked in [ANDROID_ALIGNMENT.md](ANDROID_ALIGNMENT.md).
 
 See [VALIDATION.md](VALIDATION.md) for commands actually executed and results.

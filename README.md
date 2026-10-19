@@ -17,7 +17,12 @@ See [video segmentation workflow and limitations](docs/VIDEO_TRIMMER.md).
 and verified Quran text. Run `./scripts/setup-alignment.sh`, then choose
 `scripts/alignment-worker.sh` in the editor. Setup explicitly downloads pinned,
 SHA-256-verified weights; subsequent inference works offline without Docker.
-Automatic timings require listening review. Android retains manual timing. See
+Automatic timings require listening review. Android now has an optional native
+CPU alignment candidate: open **Alignment model → Download / repair** for the
+241.2 MB pinned weights, then align offline. Manual timing remains available.
+Independent timing-accuracy acceptance is still pending; see the
+[Android model comparison, resource targets and benchmark procedure](docs/ANDROID_ALIGNMENT.md).
+See
 [setup, model provenance and limitations](docs/ALIGNMENT.md) and
 [executed checks](docs/VALIDATION.md). The [request acceptance audit](docs/ACCEPTANCE.md)
 maps every feature group and all 15 acceptance criteria to implementation,
@@ -120,12 +125,20 @@ flutter build apk --debug
 ./scripts/build-apk.sh
 # APKs are copied to output/android/
 adb devices -l
-flutter run -d DEVICE_ID
-flutter test integration_test/media_export_test.dart -d DEVICE_ID
-flutter test integration_test/enhanced_media_export_test.dart -d DEVICE_ID
-flutter test integration_test/video_segmentation_test.dart -d DEVICE_ID
-flutter test integration_test/editor_flow_test.dart -d DEVICE_ID
+# Choose the matching ABI; ARM64 example. Direct update stops on install failure.
+adb -s DEVICE_ID install -r output/android/app-arm64-v8a-release.apk
+adb -s DEVICE_ID shell am start -n com.example.quran_reel_maker/com.example.quran_reel_maker.MainActivity
+flutter test integration_test/media_export_test.dart -d DEVICE_ID --no-uninstall --dart-define=QRM_ALIGNMENT_BENCHMARK=true
+flutter test integration_test/enhanced_media_export_test.dart -d DEVICE_ID --no-uninstall --dart-define=QRM_ALIGNMENT_BENCHMARK=true
+flutter test integration_test/video_segmentation_test.dart -d DEVICE_ID --no-uninstall --dart-define=QRM_ALIGNMENT_BENCHMARK=true
+flutter test integration_test/editor_flow_test.dart -d DEVICE_ID --no-uninstall --dart-define=QRM_ALIGNMENT_BENCHMARK=true
 ```
+
+Use the isolated benchmark ID for device tests. `--no-uninstall` preserves test
+data at teardown, but Flutter may still uninstall/retry after an installation
+failure. Do not use that retry path to downgrade a normal release installation
+for debugging; private projects can be removed. Benchmark builds keep matching
+debug/release version codes so they can be updated without uninstalling.
 
 The APK script explicitly runs `flutter build apk --release --config-only`
 after dependency resolution, then builds with `--no-pub`. On the pinned Flutter
@@ -275,6 +288,8 @@ recording for opt-in real-model tests. See [fixture provenance](test/fixtures/al
 CI builds the Docker image, runs checks and produces a Linux release bundle.
 
 See [docs/VALIDATION.md](docs/VALIDATION.md) for commands actually executed and
-remaining limitations. Tests do not claim Quran alignment accuracy, real-device
-Android playback, perfect preview clock synchronization, or universal codec
-support. Export is the timing authority; independently review the final video.
+remaining limitations. The A52s has measured debug/release offline inference and
+native media regressions; real document-provider interactions and audible speaker
+output still need manual review. Tests do not establish independent Quran timing
+accuracy, perfect preview clock synchronization, or universal codec support.
+Export is the timing authority; independently review the final video.

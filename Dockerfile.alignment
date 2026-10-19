@@ -11,6 +11,26 @@ COPY test/fixtures/alignment test/fixtures/alignment
 USER 1000:1000
 CMD ["python", "-m", "alignment_worker.worker", "--model-dir", "/models"]
 
+# Optional reproducible desktop execution of the same Java core used on Android.
+# Weights are mounted separately; run with --network none after this setup build.
+FROM worker AS native-benchmark
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends openjdk-17-jdk-headless curl time \
+    && rm -rf /var/lib/apt/lists/*
+COPY android/app/src/main/java/com/example/quran_reel_maker/alignment android/app/src/main/java/com/example/quran_reel_maker/alignment
+COPY scripts/alignment scripts/alignment
+COPY assets/models/quran-ctc-vocab.json assets/models/quran-ctc-vocab.json
+RUN bash scripts/alignment/setup-native-benchmark.sh \
+    && mkdir -p /opt/ort-native \
+    && python -c 'import platform,zipfile; from pathlib import Path; arch={"x86_64":"x64","aarch64":"aarch64"}[platform.machine()]; z=zipfile.ZipFile("output/alignment-native-deps/onnxruntime-1.23.2.jar"); [(Path("/opt/ort-native")/Path(n).name).write_bytes(z.read(n)) for n in z.namelist() if n.startswith("ai/onnxruntime/native/linux-"+arch+"/") and n.endswith(".so")]' \
+    && mkdir -p output/alignment-benchmark \
+    && chown -R 1000:1000 output
+# Load the hash-verified JAR's JNI libraries from the immutable image, not /tmp
+# (the read-only inference container deliberately uses a noexec tmpfs).
+ENV JAVA_TOOL_OPTIONS="-Donnxruntime.native.path=/opt/ort-native -Dfile.encoding=UTF-8"
+USER 1000:1000
+CMD ["python", "scripts/alignment/benchmark.py"]
+
 # Optional native Flutter + real model integration environment, same Ubuntu/Python ABI.
 FROM quran-reel-dev:3.47.7 AS development
 COPY --from=worker /opt/venv /opt/alignment-venv

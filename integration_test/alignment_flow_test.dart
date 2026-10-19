@@ -7,10 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:quran_reel_maker/app.dart';
 import 'package:quran_reel_maker/core/app_services.dart';
 import 'package:quran_reel_maker/features/quran_text/quran_repository.dart';
 import 'package:quran_reel_maker/features/synchronization/alignment_engine.dart';
+import 'package:quran_reel_maker/features/synchronization/android_alignment_engine.dart';
 import 'package:quran_reel_maker/features/synchronization/ayah_timeline.dart';
 import 'package:quran_reel_maker/media_engine/media_engine.dart';
 import 'package:quran_reel_maker/services/project_store.dart';
@@ -18,18 +20,27 @@ import 'package:quran_reel_maker/services/project_store.dart';
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   testWidgets(
-    'real worker aligns, reviews, edits, saves and exports a nonzero trim',
+    'real local aligner reviews, edits, saves and exports a nonzero trim',
     (tester) async {
+      if (Platform.isAndroid &&
+          !const bool.fromEnvironment('QRM_ALIGNMENT_BENCHMARK')) {
+        throw StateError('Android tests require the isolated benchmark ID.');
+      }
       MediaKit.ensureInitialized();
       final root = await Directory.systemTemp.createTemp('qrm_alignment_ui_');
       final store = ProjectStore(Directory('${root.path}/projects'));
       final engine = createMediaEngine();
       final quran = await QuranRepository.load();
+      final support = Platform.isAndroid
+          ? await getApplicationSupportDirectory()
+          : null;
       try {
         final original = await store.create();
         final audio = await store.importFile(
           original.id,
-          File('test/fixtures/alignment/fatiha-cc0.ogg').absolute,
+          support == null
+              ? File('test/fixtures/alignment/fatiha-cc0.ogg').absolute
+              : File('${support.path}/alignment-test.ogg'),
           'audio',
         );
         final image = '${root.path}/background.png';
@@ -68,13 +79,26 @@ void main() {
           ),
         );
         await store.save(seeded);
-        await File('${root.path}/alignment-worker-path.txt')
-            .writeAsString(File('scripts/alignment-worker.sh').absolute.path);
+        if (support == null) {
+          await File('${root.path}/alignment-worker-path.txt')
+              .writeAsString(File('scripts/alignment-worker.sh').absolute.path);
+        }
         final services = AppServices(
           store: store,
           quran: quran,
           engine: engine,
           exports: Directory('${root.path}/exports'),
+          alignment: support == null
+              ? const ProcessAlignmentEngine()
+              : AndroidAlignmentEngine(
+                  media: engine,
+                  quran: quran,
+                  model: AlignmentModelStore(
+                    Directory(
+                      '${support.path}/alignment-models/${ProcessAlignmentEngine.model}',
+                    ),
+                  ),
+                ),
         );
         await tester.pumpWidget(
           ProviderScope(
@@ -137,7 +161,9 @@ void main() {
         await tester.ensureVisible(find.byTooltip('Seek to ayah').first);
         await tester.tap(find.byTooltip('Seek to ayah').first);
         await idle();
-        await tester.tap(find.text('Word boundaries · tap to seek').first);
+        final boundaries = find.text('Word boundaries · tap to seek').first;
+        await tester.ensureVisible(boundaries);
+        await tester.tap(boundaries);
         await tester.pumpAndSettle();
         expect(find.byType(ActionChip), findsWidgets);
         await tap('I reviewed the ayahs and their timing');

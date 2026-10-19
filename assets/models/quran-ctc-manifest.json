@@ -1,0 +1,41 @@
+{
+  "id": "quran-ctc-q4-v1",
+  "repository": "mostafanewir70/quran-recitation-ctc-onnx",
+  "revision": "f90650aac5d9dcff15230a19998c0027f45b33f1",
+  "license": "Apache-2.0 (publisher declaration)",
+  "sampleRate": 16000,
+  "files": {
+    "README.md": {
+      "sha256": "855f964351cc5712fa0e9520bc9a7269f8e18779f71469d58492066f43673338",
+      "size": 910
+    },
+    "config.json": {
+      "sha256": "6cade49071c8d6639511d299eee5fea0e78a344f949dcab812440ae20cba1f18",
+      "size": 2244
+    },
+    "onnx/model_q4.onnx": {
+      "sha256": "9b17e04fdc2aef54720e62216a7c7ae7f55d27911ee7cd55253baa231845a587",
+      "size": 241230289
+    },
+    "preprocessor_config.json": {
+      "sha256": "35caf9ccc729550a138a150a9fccc37e6a7ebe309ead1d345a48853573e9c6e2",
+      "size": 213
+    },
+    "special_tokens_map.json": {
+      "sha256": "9f514f3c063193e5c9b243c90c1493181a552c9547db0368c81e5581793c79f6",
+      "size": 95
+    },
+    "tokenizer.json": {
+      "sha256": "d1e3d8b7a3f3467b7df5158c4d624722dc6f251c9d6e35ba7c78195d63cb6c3e",
+      "size": 2105
+    },
+    "tokenizer_config.json": {
+      "sha256": "4e0ff21facb8027a59502171d6131a289e9dc69f987c242b15f30f2e16ba99ae",
+      "size": 1400
+    },
+    "vocab.json": {
+      "sha256": "60b9e6174798b6e1a92c92fb5935e32522aebaca4cdd1f481fd220346471644c",
+      "size": 672
+    }
+  }
+}

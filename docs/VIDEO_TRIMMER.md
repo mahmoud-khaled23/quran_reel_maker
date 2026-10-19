@@ -117,11 +117,12 @@ flutter test
 docker compose run --rm dev bash scripts/check-trimmer-ui.sh
 docker compose run --rm dev bash scripts/check-editor-ui.sh
 # On a connected Android device (real FFmpegKit segmentation):
-flutter test integration_test/video_segmentation_test.dart -d DEVICE_ID
+flutter test integration_test/video_segmentation_test.dart -d DEVICE_ID --no-uninstall --dart-define=QRM_ALIGNMENT_BENCHMARK=true
 ```
 
-The standalone native Linux test replaces only the OS file/folder chooser. Device
-execution is still required to validate Android playback, the SAF folder dialog
-and provider behavior; APK builds alone do not establish these results. No new
+The standalone native Linux test replaces only the OS file/folder chooser. The
+A52s now passes actual FFmpegKit segmentation, portrait orientation and completed
+reel export checks; see the dated validation record. Its real SAF folder dialog,
+provider behavior and standalone trimmer playback still need device review. No new
 runtime dependencies were needed, so existing Docker images remain applicable.
 CI now also runs the standalone native trimmer workflow in private Xvfb.

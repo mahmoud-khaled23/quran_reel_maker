@@ -2,8 +2,10 @@ package com.example.quran_reel_maker
 
 import android.app.Activity
 import android.content.Intent
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -12,6 +14,7 @@ import java.util.Locale
 import java.util.concurrent.CancellationException
 
 class MainActivity : FlutterActivity() {
+    private var alignmentBridge: AlignmentBridge? = null
     private var pendingResult: MethodChannel.Result? = null
     private var pendingFile: File? = null
     private var pendingVideos: List<Map<String, String>>? = null
@@ -19,8 +22,28 @@ class MainActivity : FlutterActivity() {
     private lateinit var filesChannel: MethodChannel
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        if (packageName.endsWith(".benchmark")) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        alignmentBridge = AlignmentBridge(this, flutterEngine)
         filesChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "quran_reel/files")
         filesChannel.setMethodCallHandler { call, result ->
+                if (call.method == "videoRotation") {
+                    val path = call.argument<String>("path")
+                    // Android's container parser supplies rotation when the
+                    // embedded FFprobe omits coded stream side data. No decode.
+                    Thread {
+                        val retriever = MediaMetadataRetriever()
+                        val rotation = try {
+                            require(path != null && File(path).isFile)
+                            retriever.setDataSource(path)
+                            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull()
+                        } catch (_: Exception) { null }
+                        finally { try { retriever.release() } catch (_: Exception) { } }
+                        runOnUiThread { result.success(rotation) }
+                    }.start()
+                    return@setMethodCallHandler
+                }
                 if (call.method == "cancelSave") { cancelBatch = true; result.success(null); return@setMethodCallHandler }
                 if (call.method == "saveVideos") {
                     if (pendingResult != null) { result.error("busy", "A save is already open.", null); return@setMethodCallHandler }
@@ -61,6 +84,18 @@ class MainActivity : FlutterActivity() {
                     result.error("save", error.message, null)
                 }
             }
+    }
+    override fun onStop() {
+        alignmentBridge?.cancel("Alignment stopped because the app moved to the background. Keep the app visible and rerun; existing timings were kept.")
+        super.onStop()
+    }
+    override fun onTrimMemory(level: Int) {
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) alignmentBridge?.cancel("Android requested memory relief (level $level). Close other apps and retry, or use manual timing. Existing timings were kept.")
+        super.onTrimMemory(level)
+    }
+    override fun onDestroy() {
+        alignmentBridge?.close()
+        super.onDestroy()
     }
     @Deprecated("Legacy activity result needed by FlutterActivity bridge")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

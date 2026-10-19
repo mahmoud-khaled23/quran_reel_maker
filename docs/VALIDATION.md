@@ -1,5 +1,221 @@
 # Validation record
 
+## Native Android alignment (2026-10-19, provisional)
+
+Architecture and candidate research are in [ANDROID_ALIGNMENT.md](ANDROID_ALIGNMENT.md).
+The selected integration is Quran Wav2Vec2 q4 acoustic inference plus canonical
+CTC forced alignment through ONNX Runtime Android 1.23.2. This is **not a validated
+winner on Quran word accuracy**: the one CC0 reciter fixture has broad,
+model-assisted regression windows, not independent word-boundary ground truth.
+No median/p90 boundary error or accuracy percentage is claimed. A scorer that
+requires independently reviewed references and a pending annotation template are
+included. Multi-reciter references and challenger evaluation remain outstanding.
+
+### Physical Galaxy A52s debug, with networking disabled
+
+Observed SM-A528B, Android 14, ARM64, MemTotal 7,541,152 KiB. The isolated package
+`com.example.quran_reel_maker.benchmark` used the same native core as the normal
+application. Both Wi-Fi and mobile data were disabled with permission; Android
+reported `Active default network: none`. Previous settings (Wi-Fi on, data off)
+were restored by the script. Weights and the CC0 fixture were provisioned into
+private storage beforehand, with the model hash verified on the phone.
+
+`bash scripts/alignment/run-device-check.sh --offline`: **passed**, 50 seconds
+of test execution after build/install. Fresh model sessions per app request;
+OS file cache was not flushed. Results:
+
+| Case | Audio seconds | Total seconds | Load seconds | Inference seconds | Total RTF | Result |
+|---|---:|---:|---:|---:|---:|---|
+| Base, first | 13 | 10.023 | 4.187 | 5.302 | 0.771 | 2 ayahs / 6 canonical words |
+| Base, repeat | 13 | 6.743 | 1.255 | 5.190 | 0.519 | same word boundaries |
+| Partial ayah | 4.7 | 3.149 | 1.284 | 1.645 | 0.670 | original indices 1–3 preserved; trim-edge warning |
+| Wrong text | 13 | 6.620 | — | — | 0.509 | rejected for mismatch |
+| Half-speed | 26 | 13.604 | 1.262 | 11.807 | 0.523 | 6 words; elongation/uncertainty warnings |
+| Cancel during inference | — | — | — | — | — | returned in **59 ms** |
+
+Process high-water RSS reached **873,916 KiB (853.4 MiB)** across the successful
+sequence; sampled PSS peaked at **786,929 KiB (768.5 MiB)**. Sampling every ~2s can
+miss peaks; VmHWM is cumulative for the process, not a per-job allocation. The
+50ms UI timer's largest interval was **65ms**. Thermal service status stayed 0
+(no throttling reported), sampled battery temperature 32.4–32.6°C. USB charging
+precludes an energy/battery-life claim. Cached `dumpsys cpuinfo` did not yield
+reliable app CPU samples; release instrumentation uses process CPU-time deltas.
+Raw ignored reports: `output/alignment-device-report.json`,
+`android-alignment-device-test.log`, `alignment-device-samples-final/`.
+
+An earlier attempt stopped at Android memory-relief level 10 after 2.8s. It is
+recorded as a resource failure, not an alignment rejection/success. The guard
+was retained; a later run with more free memory passed. Under pressure users
+must close other apps, shorten the selection or use manual timing. An earlier
+termination had ambiguous background/memory cause; cancellation diagnostics now
+preserve the exact lifecycle reason. No out-of-memory immunity is claimed.
+
+**Test tooling incident:** the first phone test used Flutter 3.47.7's default
+uninstall cleanup under the normal application ID. That removed its private
+model/test data and may have removed existing app-private projects. Recovery of
+prior phone projects was not verified; repository/exported host files were not
+changed. The user was informed. Subsequent tests use the separate benchmark ID
+and explicit `--no-uninstall`; scripts never uninstall the normal app.
+
+### Physical Galaxy A52s release/R8, with networking disabled
+
+`bash scripts/alignment/run-release-check.sh --offline`: **passed**. The isolated
+ARM64 release APK built in 140.8s and replaced only the benchmark package using
+`adb install -r`. Native JNI/ORT ran with `dart.vm.product=true`. Ten requests used
+fresh sessions on the same 13-second/six-word fixture; a final 180-second repeated
+recording deliberately mismatched the selected text and was correctly rejected.
+No-default-network state was verified and original Wi-Fi on/data off restored.
+
+| Measurement | Observed release result |
+|---|---|
+| First / repeated end-to-end latency | 6.978s first; 6.472–6.671s on the other nine |
+| Ten-request total RTF | median **0.502**, p90 **0.516** |
+| Model verification/load | 1.518s first; 1.200–1.296s repeated; OS cache not flushed |
+| 180-second negative | **93.129s**, RTF **0.517**; rejected for text mismatch |
+| Process high-water RSS reported by jobs | **687,252 KiB (671.1 MiB)** |
+| Sampled PSS / RSS peak | **683,929 / 743,776 KiB (667.9 / 726.3 MiB)** |
+| Process CPU time / native wall time | **190–220%**, where one fully used core is 100%; includes all app threads |
+| Largest 50ms timer interval | **62ms**, including the long input; isolate responsiveness, not frame-jank measurement |
+| Thermal / temperature | thermal status **0** for all 67 samples; battery **30.1–30.9°C** |
+
+First-three mean latency was 6.680s and last-three 6.506s: no ≥20% sustained
+slowdown was observed. `dumpsys` sampled memory and `/proc` high-water RSS have
+different accounting and sampling; both are reported, rather than treating one
+as an exact allocation peak. The phone was USB charging, so battery energy was
+not measured. Ten identical short inputs plus a long negative exercise allocation,
+cleanup and runtime limits; they do **not** satisfy the representative multi-reciter
+corpus or positive long-clip accuracy gate. Release cancellation was not separately
+timed; the actual active-inference cancellation result above is from debug.
+Reports: `output/alignment-release-report.json`, `alignment-release-logcat.txt`,
+`alignment-release-samples/`, `android-alignment-release-test.log`.
+
+### Automated and container checks
+
+- Host analyzer: **no issues**. Full Flutter suite: **60 passed**, including six
+  Android bridge/model setup tests and all existing real media/export tests.
+- Independent-reference metric invariants: **6 passed**, including per-reciter
+  failure/coverage breakdowns with missing predictions. These are synthetic
+  metric tests, not a substitute for human timing references.
+- Java core algorithm checks cover repeated CTC labels, impossible paths,
+  cancellation, Arabic folding and edit distance. Desktop CPU parity results
+  follow below.
+- Bugs corrected during validation include asynchronous file-write error handling
+  in model downloads, preserving cancellation reasons, test package isolation,
+  Java UTF-8 compilation in the container, and loading the verified JNI libraries
+  from the immutable image rather than a noexec temporary mount.
+- Final Docker Linux sequence: `check.sh`, `check-alignment-ui.sh`,
+  `check-editor-ui.sh`, `check-trimmer-ui.sh` and the release build **all passed**.
+  This includes 60 tests, clean analysis/formatting, real local alignment with
+  review/word editing/export, the editor flow (22s), and independent trimmer
+  playback/splitting/renaming/saving (15s). Log: `output/alignment-final-linux.log`.
+  The complete release bundle is `output/linux-alignment/`; host shared libraries
+  resolved and the user desktop launcher was updated to that bundle.
+- Physical A52s regression: **4 passed** in 44s after a 44.3s debug build and
+  91.3s APK installation. Real FFmpegKit verified progressive Quran MP4 export,
+  fractional cuts retaining all frames and synchronized tones, silent/portrait
+  encode and stream-copy paths, and 120s sources split into 4/2/2 files for
+  30/60/90s presets. The editor imported/trimmed native media, saved/reopened
+  manual timing, exported, and opened the trimmer on the completed MP4.
+  The first successful editor run emitted one missed pause-tap warning; the
+  harness now treats missed taps as failures and re-reveals the control after
+  the phone's dialog/keyboard transition. The stricter A52s editor rerun
+  **passed in 25s**, including both play/pause controls and completed-reel export,
+  with no missed-tap warning. Log: `output/android-alignment-editor-strict.log`.
+  Its debug build/install took 103.6/87.8s on the loaded development host.
+- Returning from the split release benchmark initially failed with
+  `INSTALL_FAILED_VERSION_DOWNGRADE`, including with `adb install -r -d`.
+  No uninstall was performed. Benchmark-only Gradle configuration now uses
+  matching debug/release version codes and disables the split-ABI offset;
+  the strict editor run updated the release installation without losing its
+  private storage. Normal application IDs/version codes are unchanged.
+- The physical portrait test uncovered FFprobe's missing display-matrix metadata.
+  Android now falls back to `MediaMetadataRetriever` when probe rotation is
+  absent, preserving explicit rotation metadata where present. The fixture sets
+  a known MP4 track matrix directly. Source, encoded and copied orientations
+  passed on the A52s; no processing workaround was needed. Earlier test runs
+  interrupted by the lock screen are not counted as passes. Benchmark activities
+  now keep their screen awake; normal alignment does so only during an active
+  job, without changing the user's system timeout.
+
+### Final Android packages and resource decision
+
+`flutter analyze --no-pub`: **no issues** (2.8s). Normal all-ABI debug build:
+**passed**, 34.2s. `bash scripts/build-apk.sh`: **all three release ABIs passed**,
+114.4s. Packages are development-signed, under `output/android/`; the isolated
+benchmark APK is kept separately. Release checksums are in `SHA256SUMS`.
+
+| Normal APK | Bytes | Increase from pre-alignment `da017d5` build |
+|---|---:|---:|
+| ARM64 release | **98,227,597** | **19,778,509** |
+| ARMv7 release | 127,563,201 | 14,453,713 |
+| x86-64 release | 113,611,934 | 23,546,827 |
+| Debug, all three ABIs | 442,361,757 | 56,930,751 |
+
+The ARM64 **≤15 MB incremental APK gate failed**; it was not silently increased.
+The full ORT ARM64 runtime/JNI contribute 19,423,368 uncompressed bytes. A smaller
+custom runtime remains future work requiring its own operator and device checks.
+The pinned weights add **241,230,289 bytes (241.2 MB / 230.1 MiB)** in private
+storage, downloaded separately; APKs contain no weights, Python, desktop JARs or
+audio fixtures. Project media, temporary files, ART profiles and exports require
+additional device space; APK plus weight size is not a complete storage estimate.
+
+`apksigner verify` and `zipalign -c -P 16 4` **passed for all four normal APKs**.
+Archive inspection found complete Flutter/ORT/JNI/FFmpeg/mpv libraries for each
+intended ABI, including all three in debug. ARM64/x86-64 ELF load segments have
+alignment ≥16 KiB. ARMv7 media libraries retain 4 KiB ELF alignment; ZIP alignment
+alone is not claimed to change that. Android automatic alignment rejects 32-bit
+processes with a manual-timing remedy. ARMv7/x86-64 packages were built/inspected,
+not executed on corresponding Android hardware. No AAB/Play Store validation was
+performed. Inspection: `output/alignment-apk-inspection.json`.
+
+The normal app's debug APK was installed directly with `adb install -r`; its
+private model was provisioned from the already verified local weights and its
+SHA-256 verified on the phone. No fixture or project was copied into the normal
+app. This verifies local setup, not an on-device HTTP download test. In-app
+download failure/corruption/retry paths have automated unit coverage.
+
+The runtime is usable as a reviewed draft generator on this A52s. The unmet APK
+budget, missing independent multi-reciter accuracy, representative sustained
+workloads and release-mode cancellation measurement keep **overall acceptance
+provisional**. Real Android file-provider dialogs, speaker listening, other
+devices and controlled unplugged energy tests also remain outstanding.
+
+### Desktop native/Python parity, network-disabled container
+
+`docker compose --profile alignment build alignment-native-checks` and
+`docker compose --profile alignment run --rm alignment-native-checks`: **passed**
+after fixing the UTF-8/noexec issues above. The actual Android Java core ran on
+desktop ONNX Runtime 1.23.2/JDK17, with the same pinned model and canonical text,
+and was compared against the unchanged Python worker on all seven cases.
+Base/partial/pause/half-speed aligned; extra repetition/wrong text/noise were
+rejected. These are transformed cases of **one** reciter, not seven independent
+recordings. Native and Python accepted word indices matched; maximum boundary difference
+was **0 ms** on all four accepted cases. This is implementation parity, not
+independent timing accuracy.
+
+| Case | Peak RSS MiB | Session load ms | First / second alignment ms |
+|---|---:|---:|---:|
+| Base | 667.2 | 1,193 | 7,377 / 9,069 |
+| Partial | 575.3 | 2,467 | 2,597 / 2,460 |
+| Pause | 705.5 | 2,536 | 11,082 / 7,382 |
+| Half-speed | 751.0 | 2,493 | 19,471 / 19,222 |
+| Extra repetition | 757.1 | 1,130 | 19,288 / 19,466 |
+| Wrong text | 663.3 | 1,263 | 7,892 / 9,349 |
+| Noise | 664.6 | 2,471 | 9,740 / 9,140 |
+
+Host: AMD Ryzen 7 5700U, Linux x86-64, 16 logical CPUs, 24GB-class RAM. Two ORT
+intra-op threads; CPU time was 169–198% of wall time across these processes.
+The host also ran development/build work, so these timings are observational,
+not a controlled speed comparison. Second runs reuse the harness session; the
+app instead closes each session. No OS cache flushing was performed.
+Reports: `output/alignment-native-docker/summary.json` and per-case files.
+
+An earlier host ablation disabled ORT's CPU arena and memory-pattern allocation:
+base peak RSS fell from 905.3 to 738.9 MiB, half-speed from 1,033.1 to 824.4 MiB,
+with zero native/Python boundary changes. Runs used different background loads,
+so no speed improvement is claimed. The memory-saving settings are retained;
+the final seven-case container check and A52s run above use them.
+
 ## Dedicated Video Trimmer (2026-10-18)
 
 Architecture inspection found the Riverpod editor, MediaKit preview players,

@@ -5,9 +5,11 @@ permissions:
 jobs:
   alignment:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - name: Independent-reference scoring invariants
+        run: python3 -m unittest discover -s scripts/alignment -p 'test_*.py' -v
       - name: Build pinned CPU inference environment
         run: docker compose --profile alignment build alignment
       - name: Explicitly install and verify model weights
@@ -22,6 +24,13 @@ jobs:
           docker compose --profile alignment run --rm -e QRM_TEST_MODEL=1 \
             -v "$PWD/.alignment-models/quran-ctc-q4-v1:/opt/quran-reel/.alignment-models/quran-ctc-q4-v1:ro" \
             alignment python -m unittest discover -s alignment_worker/tests -v
+      - name: Native Android core parity on desktop CPU (not phone accuracy)
+        run: |
+          mkdir -p output/alignment-native-docker
+          docker compose --profile alignment build alignment-native-checks
+          DEV_UID="$(id -u)" DEV_GID="$(id -g)" \
+            docker compose --profile alignment run --rm alignment-native-checks \
+            python scripts/alignment/benchmark.py --cases base,partial,wrong
   linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 40

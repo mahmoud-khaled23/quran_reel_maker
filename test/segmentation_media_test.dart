@@ -5,6 +5,39 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:quran_reel_maker/features/video_trimmer/segmentation_service.dart';
 import 'package:quran_reel_maker/media_engine/media_engine.dart';
 
+// Set a standard MP4 track matrix on our generated fixture directly. FFmpegKit
+// omits this display matrix from FFprobe output on the A52s. Using a known matrix
+// keeps the regression independent of FFmpeg's fixture-generation options.
+Future<void> portraitFixture(File source, File destination) async {
+  final bytes = await source.readAsBytes();
+  final data = ByteData.sublistView(bytes);
+  var changed = 0;
+  void boxes(int start, int end) {
+    for (var at = start; at + 8 <= end;) {
+      final size = data.getUint32(at);
+      if (size < 8 || at + size > end) throw StateError('Invalid fixture box');
+      final type = String.fromCharCodes(bytes.sublist(at + 4, at + 8));
+      if (type == 'moov' || type == 'trak') boxes(at + 8, at + size);
+      if (type == 'tkhd') {
+        final matrix = at + (bytes[at + 8] == 1 ? 60 : 48);
+        if (matrix + 44 > at + size) throw StateError('Invalid fixture track');
+        if (data.getUint32(matrix + 36) != 0) {
+          const rotation = [0, -65536, 0, 65536, 0, 0, 0, 0, 1073741824];
+          for (var i = 0; i < rotation.length; i++) {
+            data.setInt32(matrix + i * 4, rotation[i]);
+          }
+          changed++;
+        }
+      }
+      at += size;
+    }
+  }
+
+  boxes(0, bytes.length);
+  if (changed != 1) throw StateError('Expected one fixture video track');
+  await destination.writeAsBytes(bytes);
+}
+
 // Fixtures are generated here from mathematical grayscale frames and tones;
 // no third-party recording or redistribution permission is required.
 void main() {
@@ -229,18 +262,18 @@ void main() {
       await silentParts.dispose();
 
       final rotated = File('${root.path}/portrait.mp4');
-      await engine.run([
-        '-y',
+      await portraitFixture(source, rotated);
+      Future<String> rotationProbe(File file) => engine.run([
         '-v',
         'error',
-        '-display_rotation:v:0',
-        '90',
-        '-i',
-        source.path,
-        '-c',
-        'copy',
-        rotated.path,
-      ]);
+        '-show_streams',
+        '-of',
+        'json',
+        file.path,
+      ], probe: true);
+      final rotatedInfo = await engine.inspect(rotated.path);
+      expect(rotatedInfo.width, 48, reason: await rotationProbe(rotated));
+      expect(rotatedInfo.height, 64);
       final portrait = await service.split(
         await service.inspect(rotated),
         1.25,
@@ -250,7 +283,7 @@ void main() {
       );
       for (final file in portrait.files) {
         final info = await engine.inspect(file.path);
-        expect(info.width, 48);
+        expect(info.width, 48, reason: await rotationProbe(file));
         expect(info.height, 64);
         expect(info.hasAudio, true);
       }

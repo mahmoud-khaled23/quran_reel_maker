@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="alignment-models/"/>
+        <exclude domain="file" path="alignment-test.ogg"/>
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="alignment-models/"/>
+        <exclude domain="file" path="alignment-test.ogg"/>
+    </device-transfer>
+</data-extraction-rules>

@@ -20,6 +20,8 @@ import '../synchronization/word_timing_dialog.dart';
 import '../export/export_service.dart';
 import '../preview/ayah_painter.dart';
 import '../synchronization/alignment_engine.dart';
+import '../synchronization/android_alignment_engine.dart';
+import '../synchronization/alignment_model_page.dart';
 import '../synchronization/ayah_timeline.dart';
 import '../video_trimmer/video_trimmer_page.dart';
 
@@ -211,16 +213,20 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         },
       );
       if (!mounted || alignmentToken!.cancelled) return;
-      for (final cue in cues) {
-        final words = services.quran
-            .verse(cue.surah, cue.ayah)
-            .split(RegExp(r'\s+'));
-        if (cue.words.any((word) => word.index >= words.length)) {
-          throw const FormatException(
-            'Worker returned an invalid Quran word reference. Existing timings were kept.',
-          );
-        }
-      }
+      validateCanonicalCoverage(
+        cues,
+        services.quran,
+        request: AlignmentRequest(
+          audioPath: mediaPath(original.audio!),
+          trimStart: original.trimStart,
+          trimEnd: original.trimEnd,
+          surah: surah,
+          firstAyah: firstAyah,
+          lastAyah: lastAyah,
+          firstWord: firstWord,
+          lastWord: lastWord,
+        ),
+      );
       if (edit(original.copyWith(cues: cues, reviewed: false))) {
         message(
           'Automatic draft ready. Listen to each ayah and inspect the word boundaries. Review is required before export.',
@@ -1247,18 +1253,36 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                     : 'Align automatically',
               ),
             ),
-            TextButton(
-              onPressed: () => action(chooseWorker),
-              child: const Text('Choose local worker'),
-            ),
+            if (services.alignment is AndroidAlignmentEngine)
+              TextButton(
+                onPressed: () => action(() async {
+                  await pause();
+                  if (!mounted) return;
+                  await Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => AlignmentModelPage(
+                        store: (services.alignment as AndroidAlignmentEngine)
+                            .model,
+                      ),
+                    ),
+                  );
+                }),
+                child: const Text('Alignment model'),
+              )
+            else
+              TextButton(
+                onPressed: () => action(chooseWorker),
+                child: const Text('Choose local worker'),
+              ),
           ],
         ),
-        const Padding(
-          padding: EdgeInsets.only(top: 8),
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
           child: SelectableText(
-            'Linux setup: ./scripts/setup-alignment.sh, then select scripts/alignment-worker.sh. '
-            'After setup, alignment works offline. Select the matching ayahs and boundary words; omit introductions and repetitions. Android supports manual timing.',
-            style: TextStyle(fontSize: 11, color: Color(0xFF9DB0A9)),
+            services.alignment is AndroidAlignmentEngine
+                ? 'Android: open Alignment model to install the 241.2 MB offline candidate. Select the matching ayahs and boundary words. Accuracy/resource acceptance is pending; listen and review every automatic boundary. Manual timing remains available.'
+                : 'Linux setup: ./scripts/setup-alignment.sh, then select scripts/alignment-worker.sh. After setup, alignment works offline. Select the matching ayahs and boundary words; omit introductions and repetitions.',
+            style: const TextStyle(fontSize: 11, color: Color(0xFF9DB0A9)),
           ),
         ),
         if (value.cues.isNotEmpty) ...[

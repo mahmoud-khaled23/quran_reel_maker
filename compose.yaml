@@ -38,6 +38,20 @@ services:
     volumes:
       - ./.alignment-models/quran-ctc-q4-v1:/models:ro,z
       - ./output:/media:ro,z
+  alignment-native-checks:
+    profiles: [alignment]
+    build:
+      context: .
+      dockerfile: Dockerfile.alignment
+      target: native-benchmark
+    image: quran-reel-alignment-native:1
+    user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
+    network_mode: none
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - ./.alignment-models/quran-ctc-q4-v1:/opt/quran-reel/.alignment-models/quran-ctc-q4-v1:ro,z
+      - ./output/alignment-native-docker:/opt/quran-reel/output/alignment-benchmark:z
   alignment-checks:
     <<: *workspace
     profiles: [alignment]

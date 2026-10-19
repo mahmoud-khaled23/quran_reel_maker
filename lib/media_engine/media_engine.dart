@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
+import 'package:flutter/services.dart';
 
 class MediaFailure implements Exception {
   MediaFailure(this.message);
@@ -45,6 +46,8 @@ class MediaInfo {
 }
 
 abstract class MediaEngine {
+  /// Some embedded FFprobe builds omit stream display-matrix side data.
+  Future<double?> fallbackVideoRotation(String file) async => null;
   Future<String> run(
     List<String> arguments, {
     bool probe = false,
@@ -85,14 +88,14 @@ abstract class MediaEngine {
         sar[1]! > 0) {
       width *= sar[0]! / sar[1]!;
     }
-    var rotation =
-        double.tryParse('${(video['tags'] as Map?)?['rotate']}') ?? 0;
+    var rotation = double.tryParse('${(video['tags'] as Map?)?['rotate']}');
     for (final side in video['side_data_list'] as List? ?? []) {
       if (side['rotation'] is num) {
         rotation = (side['rotation'] as num).toDouble();
       }
     }
-    if (rotation.abs().round() % 180 == 90) {
+    if (video.isNotEmpty) rotation ??= await fallbackVideoRotation(file);
+    if ((rotation ?? 0).abs().round() % 180 == 90) {
       final old = width;
       width = height;
       height = old;
@@ -196,6 +199,12 @@ class ProcessMediaEngine extends MediaEngine {
 }
 
 class AndroidMediaEngine extends MediaEngine {
+  @override
+  Future<double?> fallbackVideoRotation(String file) async =>
+      (await const MethodChannel(
+        'quran_reel/files',
+      ).invokeMethod<num>('videoRotation', {'path': file}))?.toDouble();
+
   @override
   Future<String> run(
     List<String> arguments, {

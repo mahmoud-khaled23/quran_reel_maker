@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "timeline": "source",
+  "annotationStatus": "pending-independent-review",
+  "reviewers": [],
+  "instructions": "Template only. Listen and annotate every selected canonical word without viewing model predictions. A second Arabic/Quran-literate reviewer adjudicates boundaries and records uncertainty. Do not promote regression windows or model output to ground truth.",
+  "clips": [{
+    "id": "fatiha-cc0-14-27",
+    "audio": "test/fixtures/alignment/fatiha-cc0.ogg",
+    "audioSha256": "59a4eef339d3e42aeaf9b77a6423297a0f830e4872783fc0718a64862b02df32",
+    "license": "CC0-1.0",
+    "source": "https://commons.wikimedia.org/wiki/File:AlF%C4%81tihatulKit%C4%81b.ogg",
+    "reciter": "Ibrahimmusa4",
+    "trimStart": 14,
+    "trimEnd": 27,
+    "expected": "align",
+    "tags": ["short", "pause", "elongation"],
+    "words": [
+      {"surah": 1, "ayah": 2, "index": 0, "start": null, "end": null, "uncertaintyMs": null},
+      {"surah": 1, "ayah": 2, "index": 1, "start": null, "end": null, "uncertaintyMs": null},
+      {"surah": 1, "ayah": 2, "index": 2, "start": null, "end": null, "uncertaintyMs": null},
+      {"surah": 1, "ayah": 2, "index": 3, "start": null, "end": null, "uncertaintyMs": null},
+      {"surah": 1, "ayah": 3, "index": 0, "start": null, "end": null, "uncertaintyMs": null},
+      {"surah": 1, "ayah": 3, "index": 1, "start": null, "end": null, "uncertaintyMs": null}
+    ]
+  }]
+}

@@ -49,6 +49,12 @@ void main() {
   testWidgets(
     'native editor imports, trims, times, saves, reopens and exports',
     (tester) async {
+      final previousHitTestPolicy =
+          WidgetController.hitTestWarningShouldBeFatal;
+      WidgetController.hitTestWarningShouldBeFatal = true;
+      addTearDown(() {
+        WidgetController.hitTestWarningShouldBeFatal = previousHitTestPolicy;
+      });
       Future<void> idle({bool allowDialog = false}) async {
         final deadline = DateTime.now().add(const Duration(seconds: 60));
         do {
@@ -214,7 +220,13 @@ void main() {
         await tester.tap(find.byTooltip('Play selected segment'));
         await tester.pump(const Duration(milliseconds: 300));
         expect(find.byTooltip('Pause segment'), findsOneWidget);
+        // On a phone the keyboard/dialog transition can scroll this control
+        // after playback starts. Exercise a real visible tap, never miss silently.
+        await tester.ensureVisible(find.byTooltip('Pause segment'));
+        await tester.pump(const Duration(milliseconds: 100));
         await tester.tap(find.byTooltip('Pause segment'));
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(find.byTooltip('Play selected segment'), findsOneWidget);
         await tapText('Use selection');
         await tapText('Create manual timings');
         await tapText('I reviewed the ayahs and their timing');

@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Only explicit model setup uses the network. Inference uses local files. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="Quran Reel Maker"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:label="${qrmAppLabel}"
         android:name="${applicationName}"
         android:roundIcon="@mipmap/ic_launcher"
         android:icon="@mipmap/ic_launcher">
