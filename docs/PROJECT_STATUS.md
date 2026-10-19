@@ -40,8 +40,9 @@ All 14 requested requirements are implemented. Verified this session:
   gate unmet); `predictions` re-ran the Linux worker with SHA-256 verification.
   Evidence in `docs/VALIDATION.md`.
 - CI: run `39256846086` on `working-side` @ `62ebef7` → **success** (4m42s,
-  2026-10-19). Also green on `main`; `ddedb92` is a later push on the same job
-  definition.
+  2026-10-19); run `39272652072` @ `ddedb92` → **success**; run `39284033980`
+  @ `7e24977` (reference-annotation hardening) → **success**. Also green on
+  `main`.
 - Requirement spot-checks in code: six export resolutions
   (`export_settings.dart:9`), trimmer default name from uploaded filename
   (`video_trimmer_page.dart:217-219`), `_001`-style segment numbering and
