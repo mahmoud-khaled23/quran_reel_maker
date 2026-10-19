@@ -154,6 +154,19 @@ as failures. Accuracy is computed only on matched boundaries and must always be
 read with coverage. The included evaluator tests use mathematical values, not
 invented Quran timings.
 
+`scripts/alignment/quality_probe.py` adds objective, human-free evidence that
+**does not satisfy the gates above**: `score` checks predicted boundaries
+against pauses detected in the audio (floor-based VAD heuristics with explicit
+reliability diagnostics), `synthetic-pause` inserts known digital silence,
+realigns, and reports speech claimed inside that silence (provably wrong by
+that many milliseconds) plus boundary drift after removing the known time
+shift, and `predictions` prepares evaluator-ready predictions the moment gold
+labels exist. Measured 2026-10-19 on the CC0 fixture: zero speech inside 2 s of
+inserted silence, full pause coverage, mapped drift median 0.0 ms / max 20 ms
+(one CTC frame). The fixture is a continuous recitation, so natural-pause
+agreement is inconclusive there; multi-reciter human references remain the
+acceptance requirement. See [VALIDATION.md](VALIDATION.md).
+
 ## Repeatable commands
 
 ```bash
@@ -166,6 +179,14 @@ docker compose --profile alignment build alignment-native-checks
 docker compose --profile alignment run --rm alignment-native-checks
 python3 -m unittest discover -s scripts/alignment -p 'test_*.py' -v
 python3 scripts/alignment/evaluate.py independent-reference.json predictions.json
+# Objective probes (no human labels; never a substitute for the gates):
+.alignment-venv/bin/python scripts/alignment/quality_probe.py predictions \
+  --reference test/fixtures/alignment/reference-template.json \
+  --out output/quality/predictions.json
+.alignment-venv/bin/python scripts/alignment/quality_probe.py synthetic-pause \
+  --audio test/fixtures/alignment/fatiha-cc0.ogg \
+  --trim-start 14 --trim-end 27 --surah 1 --first-ayah 2 --last-ayah 3 \
+  --insert-at 7.75 --out output/quality/synthetic-pause.json
 
 # Isolated benchmark package; does not replace the normal app.
 flutter build apk --debug --dart-define=QRM_ALIGNMENT_BENCHMARK=true

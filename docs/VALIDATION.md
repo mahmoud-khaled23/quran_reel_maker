@@ -1,5 +1,55 @@
 # Validation record
 
+## Objective alignment quality probes (2026-10-19)
+
+Tooling: `scripts/alignment/quality_probe.py` with 16 new stdlib-only unit
+tests in `scripts/alignment/test_quality_probe.py`. These probes produce
+human-free evidence about word-boundary behavior. They do **not** satisfy the
+independent accuracy gates in [ANDROID_ALIGNMENT.md](ANDROID_ALIGNMENT.md);
+human-reviewed multi-reciter references remain required.
+
+`python3 -m unittest discover -s scripts/alignment -p 'test_*.py' -v` →
+**22 passed** (6 pre-existing evaluator invariants + 16 new probe tests; the
+new tests need no model, network, ffmpeg or numpy, so the existing CI step
+covers them unchanged).
+
+`predict` step (`quality_probe.py predictions`) ran the Linux worker for the
+one CC0 reference clip and wrote evaluator-ready
+`output/quality/fatiha-predictions.json` (status `aligned`, all 6 canonical
+words, selection derived from the reference word list and validated against the
+bundled Tanzil text). Running `scripts/alignment/evaluate.py` against the still
+unfilled template correctly fails with *"Accuracy scoring requires independent
+human-reviewed annotations"* — the tooling cannot bypass the human gate.
+
+`synthetic-pause` (2 s of digitally silent samples inserted at trim-relative
+7.75 s, inside the base alignment's inter-word gap; the model realigned the
+modified audio offline, then the known shift was removed):
+
+- `speechInsideInsertedSilence.totalViolationMs` = **0.0 ms** — no word was
+  claimed inside known-silent samples.
+- `insertedSilencePauseCoverage` = **1.0** — the predicted inter-word pause
+  covered the full inserted silence.
+- `mappedDrift` over all 12 word boundaries: median **0.0 ms**, p90 **18.0 ms**,
+  max **20.0 ms** (one CTC frame); identical word sets before/after.
+- Caveat recorded in the report: the insertion position's inter-word status
+  comes from the base alignment plus surrounding quiet acoustics, not from
+  human listening.
+
+`score` (acoustic plausibility, floor-based VAD at threshold −43.9 dBFS with
+reliability diagnostics): the 13-second fixture is a continuous recitation —
+exactly one deep pause (26.2–26.98 s, after the last word, which ends at
+26.043 s) and **no** between-word pause, so natural-pause agreement is
+**inconclusive** on this clip and the report says so explicitly
+(`pausePlacement`, warning text). Earlier permissive thresholds (p10-based)
+misclassified quiet elongation (−27 dBFS) as silence and produced misleading
+"silence inside word" flags; the detector was retuned to a p05 floor plus
+guards, and per-pause placement classification was added so borderline cases
+are visible rather than collapsed into one number.
+
+Raw reports remain under ignored `output/quality/` (`fatiha-result.json`,
+`fatiha-acoustic.json`, `fatiha-synthetic-pause.json` + per-word base/generated
+files, `fatiha-predictions.json`).
+
 ## Native Android alignment (2026-10-19, provisional)
 
 Architecture and candidate research are in [ANDROID_ALIGNMENT.md](ANDROID_ALIGNMENT.md).
